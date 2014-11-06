@@ -9,3 +9,6 @@ This project uses OpenCV library for image processing. The operatiosn are as fol
 
 To be done:
 1) Figure out algorithm for figuring out the amount of fingers raised
+
+Resources:
+http://www.ijrdet.com/files/Volume2Issue5/IJRDET_0514_04.pdf 
