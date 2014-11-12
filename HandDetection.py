@@ -3,6 +3,8 @@ import numpy as np
 
 #Open Camera object
 cap = cv2.VideoCapture(0)
+cap.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 1000)
+cap.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, 600)
 
 def nothing(x):
     pass
@@ -70,7 +72,7 @@ while(1):
     kernel_ellipse= cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
     dilation3 = cv2.dilate(filtered,kernel_ellipse,iterations = 1)
 
-    dilation2 = dilation2 + filtered + erosion + dilation + dilation3
+    #dilation2 = dilation2 + filtered + erosion + dilation + dilation3
     
     median = cv2.medianBlur(dilation2,5)
     
@@ -119,38 +121,69 @@ while(1):
     centerMass=(cx,cy)       
     cv2.circle(frame,centerMass,7,[100,0,255],2)     
     
-    distanceFromDefects = []
+    distanceBetweenDefectsToCenter = []
     
-    #for i in range(0,len(FarDefect)):
-    #    x =  np.array(FarDefect[i])
-    #    centerMass = np.array(centerMass)
-   #     #print np.sqrt(np.power(x[0]-centerMass[0],2)-np.power(x[1]-centerMass[1],2)
-    #distanceFromDefects.append(np.sqrt(np.power(x[0]-centerMass[0],2)-np.power(x[1]-centerMass[1],2))
-    #print distanceFromDefects
-    # centerMass = np.asarray(centerMass)
-
-	#distanceFromDefects.append(FindDistance(centerMass,Defect))
+    for i in range(0,len(FarDefect)):
+        x =  np.array(FarDefect[i])
+        centerMass = np.array(centerMass)
+        distance = np.sqrt(np.power(x[0]-centerMass[0],2)+np.power(x[1]-centerMass[1],2))
+        distanceBetweenDefectsToCenter.append(distance)
     
-    #print 'original',contours[0][1]
-    #print contours[0][2][0][0]
-    #print contours[0][2][0][1]
+    sortedDefectsDistances = sorted(distanceBetweenDefectsToCenter)
+    AverageDefectDistance = np.mean(sortedDefectsDistances[0:3])
+    
+    #print AverageDefectDistance
     
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(frame,'Center',centerMass,font,2,(255,255,255),2)
+    cv2.putText(frame,'Center',tuple(centerMass),font,2,(255,255,255),2)
     
     finger = []
     for i in range(0,len(hull)-1):
-        if (np.absolute(hull[i][0][0] - hull[i+1][0][0]) > 30) or ( np.absolute(hull[i][0][1] - hull[i+1][0][1]) > 30):
+        if (np.absolute(hull[i][0][0] - hull[i+1][0][0]) > 50) or ( np.absolute(hull[i][0][1] - hull[i+1][0][1]) > 50):
             finger.append(hull[i][0])
     
     #Sort fingers by hight  
     finger =  sorted(finger,key=lambda x: x[1])   
+    Results = 0
     
+    #print finger[1][1]
+    #print centerMass
+    DistanceFromDefect = 100
+    distance1 = np.sqrt(np.power(finger[0][0]-centerMass[0],2)+np.power(finger[0][1]-centerMass[1],2))
+    distance2 = np.sqrt(np.power(finger[1][0]-centerMass[1],2)+np.power(finger[1][1]-centerMass[1],2))
+    #print distance1
+    #print distance2
+    #print distance
+    #if distance1 > DistanceFromDefect and distance2<DistanceFromDefect:
+    #    print 1
+    #elif distance2 > DistanceFromDefect:
+    #    print 2
+    
+        
+    #print len(finger)
+    #Attempt to compare defects distances with fingers
+    fingerDistance = []
+    for i in range(0,len(finger)):
+        distance = np.sqrt(np.power(finger[i][0]-centerMass[0],2)+np.power(finger[i][1]-centerMass[0],2))
+        fingerDistance.append(distance)
+    
+    result = 0
+    print 'This is finger distances',fingerDistance[0]
+    print 'Average Defect distance',AverageDefectDistance
+    for i in range(0,len(finger)):
+        if fingerDistance[i] > AverageDefectDistance+130:
+            result = result +1
+            
+    print result
+        
+    #if fingerDistance[i] > AverageDefectDistance:
+    ##    Results =  Results +1   
+    #print Results
     
     #show height raised fingers
-    #cv2.putText(frame,'finger1',tuple(finger[0]),font,2,(255,255,255),2)
-    #cv2.putText(frame,'finger2',tuple(finger[1]),font,2,(255,255,255),2)
-    #cv2.putText(frame,'finger3',tuple(finger[2]),font,2,(255,255,255),2)
+    cv2.putText(frame,'finger1',tuple(finger[0]),font,2,(255,255,255),2)
+    cv2.putText(frame,'finger2',tuple(finger[1]),font,2,(255,255,255),2)
+    cv2.putText(frame,'finger3',tuple(finger[2]),font,2,(255,255,255),2)
     #cv2.putText(frame,'finger4',tuple(finger[3]),font,2,(255,255,255),2)
     #cv2.putText(frame,'finger5',tuple(finger[4]),font,2,(255,255,255),2)
     #cv2.putText(frame,'finger6',tuple(finger[5]),font,2,(255,255,255),2)
