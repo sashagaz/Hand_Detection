@@ -24,4 +24,4 @@ References:
 https://github.com/lzane/Fingers-Detection-using-OpenCV-and-Python/tree/py2_opencv2
 https://github.com/sashagaz/Hand_Detection
 http://www.tmroyal.com/a-high-level-description-of-two-fingertip-tracking-techniques-k-curvature-and-convexity-defects.html
- 
+http://fivedots.coe.psu.ac.th/~ad/jg/nui055/
