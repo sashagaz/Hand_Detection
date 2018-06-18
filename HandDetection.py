@@ -1,3 +1,6 @@
+import copy
+import math
+
 import cv2
 import numpy as np
 import time
@@ -9,7 +12,7 @@ def nothing(x):
 
 
 # Function to find angle between two vectors
-def Angle(v1, v2):
+def calculate_angle(v1, v2):
     dot = np.dot(v1, v2)
     x_modulus = np.sqrt((v1 * v1).sum())
     y_modulus = np.sqrt((v2 * v2).sum())
@@ -19,7 +22,7 @@ def Angle(v1, v2):
 
 
 # Function to find distance between two points in a list of lists
-def FindDistance(A, B):
+def find_distance(A, B):
     return np.sqrt(np.power((A[0][0] - B[0][0]), 2) + np.power((A[0][1] - B[0][1]), 2))
 
 
@@ -41,12 +44,14 @@ class HandDetector():
         self.capture = cv2.VideoCapture(0)
         self.hands = [] #[{"fingers":None, "center_of_mass":None}]
         self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.first_frame = None
+        self.discarded_frames = 15
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
     def compute(self):
-        while (True):
+        while True:
 
             # Measure execution time
             start_time = time.time()
@@ -59,22 +64,21 @@ class HandDetector():
 
             # Finger is pointed/raised if the distance of between fingertip to the center mass is larger
             # than the distance of average finger webbing to center mass by 130 pixels
-            result = 0
             if len(self.hands) > 0:
-                for i in range(0, len(self.hands[0]["fingers"])):
-                    if self.hands[0]['finger_distance'][i] > self.hands[0]['average_defects_distance'] + 130:
-                        result = result + 1
+                for i in range(0, len(self.hands[0]["fingertips"])):
+                    cv2.putText(frame, 'finger'+str(i), tuple(self.hands[0]["fingertips"][i]), self.font, 0.5, (255, 255, 255),
+                                    1)
 
                 # Print number of pointed fingers
-                cv2.putText(frame, str(result), (100, 100), self.font, 2, (255, 255, 255), 2)
+                cv2.putText(frame, str(len(self.hands[0]["fingertips"])), (100, 100), self.font, 2, (0, 0, 0), 2)
 
                 # show height raised fingers
-                # cv2.putText(frame,'finger1',tuple(finger[0]),self.font,2,(255,255,255),2)
-                # cv2.putText(frame,'finger2',tuple(finger[1]),self.font,2,(255,255,255),2)
-                # cv2.putText(frame,'finger3',tuple(finger[2]),self.font,2,(255,255,255),2)
-                # cv2.putText(frame,'finger4',tuple(finger[3]),self.font,2,(255,255,255),2)
-                # cv2.putText(frame,'finger5',tuple(finger[4]),self.font,2,(255,255,255),2)
-                # cv2.putText(frame,'finger6',tuple(finger[5]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger1',tuple(self.hands[0]["fingers"][0]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger2',tuple(self.hands[0]["fingers"][1]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger3',tuple(self.hands[0]["fingers"][2]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger4',tuple(self.hands[0]["fingers"][3]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger5',tuple(self.hands[0]["fingers"][4]),self.font,2,(255,255,255),2)
+                # cv2.putText(frame,'finger6',tuple(self.hands[0]["fingers"][5]),self.font,2,(255,255,255),2)
                 # cv2.putText(frame,'finger7',tuple(finger[6]),self.font,2,(255,255,255),2)
                 # cv2.putText(frame,'finger8',tuple(finger[7]),self.font,2,(255,255,255),2)
                 x,y,w,h = self.hands[0]['bounding_rect']
@@ -94,11 +98,39 @@ class HandDetector():
             if k == 27:
                 break
 
-    def detect_hands(self, ret, frame):
+    # def calculate_hand_interst_points(self, frame, cnts):
+    #     #  convexity defect
+    #
+    #     drawing = copy.deepcopy(frame)
+    #     hull = cv2.convexHull(cnts, returnPoints=False)
+    #     if len(hull) > 3:
+    #         defects = cv2.convexityDefects(cnts, hull)
+    #         if type(defects) != type(None):  # avoid crashing.   (BUG not found)
+    #
+    #             cnt = 0
+    #             for i in range(defects.shape[0]):  # calculate the angle
+    #                 s, e, f, d = defects[i][0]
+    #                 start = tuple(cnts[s][0])
+    #                 end = tuple(cnts[e][0])
+    #                 far = tuple(cnts[f][0])
+    #                 a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
+    #                 b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
+    #                 c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+    #                 angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))  # cosine theorem
+    #                 if angle <= math.pi / 2:  # angle less than 90 degree, treat as fingers
+    #                     cnt += 1
+    #                     cv2.circle(drawing, far, 8, [211, 84, 0], -1)
+    #                     interdigs.append(far)
+    #                 cv2.imshow("detect_fingers", drawing)
+    #     return interdigs
 
+    def detect_hands(self, ret, frame):
         if ret:
+            self.hands = []
             # Create a binary image with where white will be skin colors and rest is black
             hand_mask = self.create_hands_mask(frame)
+            if hand_mask is None:
+                return
             cv2.imshow("hand_mask", hand_mask)
 
             # Kernel matrices for morphological transformation
@@ -124,7 +156,6 @@ class HandDetector():
 
             # Draw Contours
             # cv2.drawContours(frame, cnt, -1, (122,122,0), 3)
-            cv2.imshow('Dilation', median)
 
             if contours:
                 # Find Max contour area (Assume that hand is in the frame)
@@ -140,6 +171,8 @@ class HandDetector():
                     # Largest area contour
                 cnts = contours[ci]
 
+                # self.detect_fingers(frame, cnts)
+
                 # Find convex hull
                 hull = cv2.convexHull(cnts)
 
@@ -147,10 +180,24 @@ class HandDetector():
                 hull2 = cv2.convexHull(cnts, returnPoints=False)
                 defects = cv2.convexityDefects(cnts, hull2)
 
+                cv2.drawContours(frame, [cnts], 0, (255,0, 0), 2)
+                # cv2.drawContours(frame, [hull], 0, (0, 0, 255), 3)
+
+                # Find moments of the largest contour
+                moments = cv2.moments(cnts)
+
+                # Central mass of first order moments
+                if moments['m00'] != 0:
+                    cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
+                    cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
+                centerMass = (cx, cy)
+
                 # Get defect points and draw them in the original image
-                FarDefect = []
-                # print defects.shape
-                if defects.shape[0] > 13:
+                if defects is not None:
+                    intertips_coords = []
+                    FarDefect = []
+                    fingertips_coords = []
+                    distanceBetweenDefectsToCenter = []
                     for i in range(defects.shape[0]):
                         s, e, f, d = defects[i, 0]
                         start = tuple(cnts[s][0])
@@ -158,54 +205,73 @@ class HandDetector():
                         far = tuple(cnts[f][0])
                         FarDefect.append(far)
                         cv2.line(frame, start, end, [0, 255, 0], 1)
-                        cv2.circle(frame, far, 10, [100, 255, 255], 3)
+                        a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
+                        b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
+                        c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+                        angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))  # cosine theorem
+                        #get tips and intertips coordinates
+                        if angle <= math.pi / 2:  # angle less than 90 degree, treat as fingers
+                            cnt += 1
+                            cv2.circle(frame, far, 8, [211, 84, 0], -1)
+                            intertips_coords.append(far)
+                            if len(fingertips_coords) > 0:
+                                from scipy.spatial import distance
+                                #calculate distances from start and end to the already known tips
+                                start_distance, end_distance = tuple(distance.cdist(fingertips_coords, [start, end]).min(axis=0))
 
-                    # Find moments of the largest contour
-                    moments = cv2.moments(cnts)
+                                if start_distance> 10:
+                                    fingertips_coords.append(start)
+                                    cv2.circle(frame, start, 10, [255, 100, 255], 3)
+                                if end_distance>10:
+                                    fingertips_coords.append(end)
+                                    cv2.circle(frame, end, 10, [255, 100, 255], 3)
+                            else:
+                                fingertips_coords.append(start)
+                                cv2.circle(frame, start, 10, [255, 100, 255], 3)
+                                fingertips_coords.append(end)
+                                cv2.circle(frame, end, 10, [255, 100, 255], 3)
 
-                    # Central mass of first order moments
-                    if moments['m00'] != 0:
-                        cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
-                        cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
-                    centerMass = (cx, cy)
+                        # Distance from each finger defect(finger webbing) to the center mass
+                        x = np.array(far)
+                        center_mass_array = np.array(centerMass)
+                        distance = np.sqrt(
+                            np.power(x[0] - center_mass_array[0], 2) + np.power(x[1] - center_mass_array[1], 2))
+                        distanceBetweenDefectsToCenter.append(distance)
+                        # cv2.circle(frame, far, 10, [100, 255, 255], 3)
+
 
                     # Draw center mass
                     cv2.circle(frame, centerMass, 7, [100, 0, 255], 2)
                     cv2.putText(frame, 'Center', tuple(centerMass), self.font, 2, (255, 255, 255), 2)
 
-                    # Distance from each finger defect(finger webbing) to the center mass
-                    distanceBetweenDefectsToCenter = []
-                    for i in range(0, len(FarDefect)):
-                        x = np.array(FarDefect[i])
-                        centerMass = np.array(centerMass)
-                        distance = np.sqrt(np.power(x[0] - centerMass[0], 2) + np.power(x[1] - centerMass[1], 2))
-                        distanceBetweenDefectsToCenter.append(distance)
 
                     # Get an average of three shortest distances from finger webbing to center mass
                     sortedDefectsDistances = sorted(distanceBetweenDefectsToCenter)
                     AverageDefectDistance = np.mean(sortedDefectsDistances[0:2])
 
-                    # Get fingertip points from contour hull
-                    # If points are in proximity of 80 pixels, consider as a single point in the group
-                    finger = []
-                    for i in range(0, len(hull) - 1):
-                        if (np.absolute(hull[i][0][0] - hull[i + 1][0][0]) > 80) or (
-                                np.absolute(hull[i][0][1] - hull[i + 1][0][1]) > 80):
-                            if hull[i][0][1] < 500:
-                                finger.append(hull[i][0])
-
-                    # The fingertip points are 5 hull points with largest y coordinates
-                    finger = sorted(finger, key=lambda x: x[1])
-                    fingers = finger[0:5]
+                    # # Get fingertip points from contour hull
+                    # # If points are in proximity of 80 pixels, consider as a single point in the group
+                    # finger = []
+                    # for i in range(0, len(hull) - 1):
+                    #     if (np.absolute(hull[i][0][0] - hull[i + 1][0][0]) > 10) or (
+                    #             np.absolute(hull[i][0][1] - hull[i + 1][0][1]) > 10):
+                    #         if hull[i][0][1] < 500:
+                    #             finger.append(hull[i][0])
+                    #
+                    #
+                    # # The fingertip points are 5 hull points with largest y coordinates
+                    # finger = sorted(finger, key=lambda x: x[1])
+                    # fingers = finger[0:5]
 
                     # Calculate distance of each finger tip to the center mass
                     finger_distances = []
-                    for i in range(0, len(fingers)):
+                    for i in range(0, len(fingertips_coords)):
                         distance = np.sqrt(
-                            np.power(fingers[i][0] - centerMass[0], 2) + np.power(fingers[i][1] - centerMass[0], 2))
+                            np.power(fingertips_coords[i][0] - centerMass[0], 2) + np.power(fingertips_coords[i][1] - centerMass[0], 2))
                         finger_distances.append(distance)
                     hand={
-                            'fingers': fingers,
+                            'fingertips': fingertips_coords,
+                            'intertips':intertips_coords,
                             'center_of_mass':centerMass,
                             'finger_distances':finger_distances,
                             'bounding_rect': (cv2.boundingRect(cnts)),
@@ -220,7 +286,7 @@ class HandDetector():
         self.capture.release()
         cv2.destroyAllWindows()
 
-    def create_hands_mask(self, image,  mode="color"):
+    def create_hands_mask(self, image,  mode="diff"):
         mask = None
         if mode == "color":
             # Blur the image
@@ -228,14 +294,27 @@ class HandDetector():
             # Convert to HSV color space
             hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
-        elif mode == "background_subtract":
-            fgbg = cv2.createBackgroundSubtractorMOG2()
+        elif mode == "MOG2":
+            fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
+            # fgbg= cv2.BackgroundSubtractorMOG2(0, 50)
+            # fgbg=cv2.BackgroundSubtractor()
             # fgbg = cv2.BackgroundSubtractorMOG()
             # gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # blur = cv2.medianBlur(gray_image, 5)
-            cv2.imshow("blurred", image)
-            # blur = cv2.blur(image, (10, 10))
-            mask = fgbg.apply(image,learningRate=0)
+            # blur = cv2.medianBlur(gray_image, 100)
+            # blur = cv2.blur(gray_image, (5, 5))
+            # cv2.imshow("blurred", blur)
+            mask = fgbg.apply(image)
+        elif mode == "diff":
+            blurred = cv2.GaussianBlur(image, (5, 5), 0)
+            if self.first_frame is None or self.discarded_frames != 0:
+                self.discarded_frames -= 1
+                self.first_frame = image
+            else:
+                diff = cv2.absdiff(blurred, self.first_frame)
+                # print "diff"
+                gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+                cv2.imshow("diff", gray_diff)
+                _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
 
 
