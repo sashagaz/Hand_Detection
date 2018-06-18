@@ -6,7 +6,6 @@ import numpy as np
 import time
 
 
-
 def nothing(x):
     pass
 
@@ -42,9 +41,10 @@ class HandDetector():
     def __init__(self):
         # Open Camera object
         self.capture = cv2.VideoCapture(0)
-        self.hands = [] #[{"fingers":None, "center_of_mass":None}]
+        self.hands = []  # [{"fingers":None, "center_of_mass":None}]
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.first_frame = None
+        # TODO: ENV_DEPENDENCE: depending on the environment and camera it would be more or less frames to discard
         self.discarded_frames = 15
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
@@ -66,8 +66,9 @@ class HandDetector():
             # than the distance of average finger webbing to center mass by 130 pixels
             if len(self.hands) > 0:
                 for i in range(0, len(self.hands[0]["fingertips"])):
-                    cv2.putText(frame, 'finger'+str(i), tuple(self.hands[0]["fingertips"][i]), self.font, 0.5, (255, 255, 255),
-                                    1)
+                    cv2.putText(frame, 'finger' + str(i), tuple(self.hands[0]["fingertips"][i]), self.font, 0.5,
+                                (255, 255, 255),
+                                1)
 
                 # Print number of pointed fingers
                 cv2.putText(frame, str(len(self.hands[0]["fingertips"])), (100, 100), self.font, 2, (0, 0, 0), 2)
@@ -81,7 +82,7 @@ class HandDetector():
                 # cv2.putText(frame,'finger6',tuple(self.hands[0]["fingers"][5]),self.font,2,(255,255,255),2)
                 # cv2.putText(frame,'finger7',tuple(finger[6]),self.font,2,(255,255,255),2)
                 # cv2.putText(frame,'finger8',tuple(finger[7]),self.font,2,(255,255,255),2)
-                x,y,w,h = self.hands[0]['bounding_rect']
+                x, y, w, h = self.hands[0]['bounding_rect']
                 img = cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
                 cv2.drawContours(frame, [self.hands[0]['hull']], -1, (255, 255, 255), 2)
@@ -159,6 +160,7 @@ class HandDetector():
 
             if contours:
                 # Find Max contour area (Assume that hand is in the frame)
+                # TODO: ENV_DEPENDENCE: depends on the camera resolution, distance to the background, noisy areas sizes
                 max_area = 100
                 ci = 0
                 for i in range(len(contours)):
@@ -180,7 +182,7 @@ class HandDetector():
                 hull2 = cv2.convexHull(cnts, returnPoints=False)
                 defects = cv2.convexityDefects(cnts, hull2)
 
-                cv2.drawContours(frame, [cnts], 0, (255,0, 0), 2)
+                cv2.drawContours(frame, [cnts], 0, (255, 0, 0), 2)
                 # cv2.drawContours(frame, [hull], 0, (0, 0, 255), 3)
 
                 # Find moments of the largest contour
@@ -209,20 +211,24 @@ class HandDetector():
                         b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
                         c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
                         angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))  # cosine theorem
-                        #get tips and intertips coordinates
-                        if angle <= math.pi / 2:  # angle less than 90 degree, treat as fingers
+                        # Get tips and intertips coordinates
+                        # TODO: ENV_DEPENDENCE: this angle > 90º determinate if two points are considerated fingertips or not and 90 make thumb to fail in some occasions
+                        intertips_max_angle = math.pi / 1.7
+                        if angle <= intertips_max_angle:  # angle less than 90 degree, treat as fingers
                             cnt += 1
                             cv2.circle(frame, far, 8, [211, 84, 0], -1)
                             intertips_coords.append(far)
                             if len(fingertips_coords) > 0:
                                 from scipy.spatial import distance
-                                #calculate distances from start and end to the already known tips
-                                start_distance, end_distance = tuple(distance.cdist(fingertips_coords, [start, end]).min(axis=0))
-
-                                if start_distance> 10:
+                                # calculate distances from start and end to the already known tips
+                                start_distance, end_distance = tuple(
+                                    distance.cdist(fingertips_coords, [start, end]).min(axis=0))
+                                # TODO: ENV_DEPENDENCE: it determinate the pixels distance to consider two points the same. It depends on camera resolution and distance from the hand to the camera
+                                same_fingertip_radius = 10
+                                if start_distance > same_fingertip_radius:
                                     fingertips_coords.append(start)
                                     cv2.circle(frame, start, 10, [255, 100, 255], 3)
-                                if end_distance>10:
+                                if end_distance > same_fingertip_radius:
                                     fingertips_coords.append(end)
                                     cv2.circle(frame, end, 10, [255, 100, 255], 3)
                             else:
@@ -239,11 +245,9 @@ class HandDetector():
                         distanceBetweenDefectsToCenter.append(distance)
                         # cv2.circle(frame, far, 10, [100, 255, 255], 3)
 
-
                     # Draw center mass
                     cv2.circle(frame, centerMass, 7, [100, 0, 255], 2)
                     cv2.putText(frame, 'Center', tuple(centerMass), self.font, 2, (255, 255, 255), 2)
-
 
                     # Get an average of three shortest distances from finger webbing to center mass
                     sortedDefectsDistances = sorted(distanceBetweenDefectsToCenter)
@@ -267,45 +271,50 @@ class HandDetector():
                     finger_distances = []
                     for i in range(0, len(fingertips_coords)):
                         distance = np.sqrt(
-                            np.power(fingertips_coords[i][0] - centerMass[0], 2) + np.power(fingertips_coords[i][1] - centerMass[0], 2))
+                            np.power(fingertips_coords[i][0] - centerMass[0], 2) + np.power(
+                                fingertips_coords[i][1] - centerMass[0], 2))
                         finger_distances.append(distance)
-                    hand={
-                            'fingertips': fingertips_coords,
-                            'intertips':intertips_coords,
-                            'center_of_mass':centerMass,
-                            'finger_distances':finger_distances,
-                            'bounding_rect': (cv2.boundingRect(cnts)),
-                            'average_defect_distance': AverageDefectDistance,
-                            'hull': hull
-                        }
+                    hand = {
+                        'fingertips': fingertips_coords,
+                        'intertips': intertips_coords,
+                        'center_of_mass': centerMass,
+                        'finger_distances': finger_distances,
+                        'bounding_rect': (cv2.boundingRect(cnts)),
+                        'average_defect_distance': AverageDefectDistance,
+                        'hull': hull
+                    }
                     self.hands.append(hand)
-
-
 
     def exit(self):
         self.capture.release()
         cv2.destroyAllWindows()
 
-    def create_hands_mask(self, image,  mode="diff"):
+    def create_hands_mask(self, image, mode="diff"):
         mask = None
         if mode == "color":
             # Blur the image
-            blur = cv2.blur(image, (3, 3))
+            blur_radius = 5
+            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
             # Convert to HSV color space
-            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
         elif mode == "MOG2":
+            # TODO: not working (it considers everything shadows or moves (too dark background)
             fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
             # fgbg= cv2.BackgroundSubtractorMOG2(0, 50)
             # fgbg=cv2.BackgroundSubtractor()
             # fgbg = cv2.BackgroundSubtractorMOG()
-            # gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # TODO: ENV_DEPENDENCE: it could depend on the camera quality
             # blur = cv2.medianBlur(gray_image, 100)
-            # blur = cv2.blur(gray_image, (5, 5))
+            blur_radius = 5
+            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
             # cv2.imshow("blurred", blur)
-            mask = fgbg.apply(image)
+            mask = fgbg.apply(blurred)
         elif mode == "diff":
-            blurred = cv2.GaussianBlur(image, (5, 5), 0)
+            # TODO: ENV_DEPENDENCE: it could depend on the camera quality
+            blur_radius = 5
+            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
             if self.first_frame is None or self.discarded_frames != 0:
                 self.discarded_frames -= 1
                 self.first_frame = image
@@ -323,6 +332,6 @@ def main():
     hand_detector.compute()
     hand_detector.exit()
 
+
 if __name__ == "__main__":
     main()
-
