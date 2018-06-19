@@ -1,4 +1,6 @@
-import copy
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import math
 
 import cv2
@@ -129,10 +131,10 @@ class HandDetector():
         if ret:
             self.hands = []
             # Create a binary image with where white will be skin colors and rest is black
-            hand_mask = self.create_hands_mask(frame)
-            if hand_mask is None:
+            hands_mask = self.create_hands_mask(frame)
+            if hands_mask is None:
                 return
-            cv2.imshow("hand_mask", hand_mask)
+            cv2.imshow("hands_mask", hands_mask)
 
             # Kernel matrices for morphological transformation
             kernel_square = np.ones((11, 11), np.uint8)
@@ -141,7 +143,7 @@ class HandDetector():
             # Perform morphological transformations to filter out the background noise
             # Dilation increase skin color area
             # Erosion increase skin color area
-            dilation = cv2.dilate(hand_mask, kernel_ellipse, iterations=1)
+            dilation = cv2.dilate(hands_mask, kernel_ellipse, iterations=1)
             erosion = cv2.erode(dilation, kernel_square, iterations=1)
             dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
             filtered = cv2.medianBlur(dilation2, 5)
@@ -149,7 +151,7 @@ class HandDetector():
             dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
             kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
             dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-            median = cv2.medianBlur(dilation2, 5)
+            median = cv2.medianBlur(dilation3, 5)
             ret, thresh = cv2.threshold(median, 127, 255, 0)
 
             # Find contours of the filtered frame
@@ -170,23 +172,23 @@ class HandDetector():
                         max_area = area
                         ci = i
 
-                    # Largest area contour
-                cnts = contours[ci]
+                # Largest area contour
+                hand_contour = contours[ci]
 
                 # self.detect_fingers(frame, cnts)
 
                 # Find convex hull
-                hull = cv2.convexHull(cnts)
+                hull = cv2.convexHull(hand_contour)
 
                 # Find convex defects
-                hull2 = cv2.convexHull(cnts, returnPoints=False)
-                defects = cv2.convexityDefects(cnts, hull2)
+                hull2 = cv2.convexHull(hand_contour, returnPoints=False)
+                defects = cv2.convexityDefects(hand_contour, hull2)
 
-                cv2.drawContours(frame, [cnts], 0, (255, 0, 0), 2)
+                cv2.drawContours(frame, [hand_contour], 0, (255, 0, 0), 2)
                 # cv2.drawContours(frame, [hull], 0, (0, 0, 255), 3)
 
                 # Find moments of the largest contour
-                moments = cv2.moments(cnts)
+                moments = cv2.moments(hand_contour)
 
                 # Central mass of first order moments
                 if moments['m00'] != 0:
@@ -202,9 +204,9 @@ class HandDetector():
                     distanceBetweenDefectsToCenter = []
                     for i in range(defects.shape[0]):
                         s, e, f, d = defects[i, 0]
-                        start = tuple(cnts[s][0])
-                        end = tuple(cnts[e][0])
-                        far = tuple(cnts[f][0])
+                        start = tuple(hand_contour[s][0])
+                        end = tuple(hand_contour[e][0])
+                        far = tuple(hand_contour[f][0])
                         FarDefect.append(far)
                         cv2.line(frame, start, end, [0, 255, 0], 1)
                         a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
@@ -279,7 +281,7 @@ class HandDetector():
                         'intertips': intertips_coords,
                         'center_of_mass': centerMass,
                         'finger_distances': finger_distances,
-                        'bounding_rect': (cv2.boundingRect(cnts)),
+                        'bounding_rect': (cv2.boundingRect(hand_contour)),
                         'average_defect_distance': AverageDefectDistance,
                         'hull': hull
                     }
@@ -289,43 +291,64 @@ class HandDetector():
         self.capture.release()
         cv2.destroyAllWindows()
 
-    def create_hands_mask(self, image, mode="diff"):
+    def create_hands_mask(self, image, mode="mixed"):
         mask = None
         if mode == "color":
-            # Blur the image
-            blur_radius = 5
-            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
-            # Convert to HSV color space
-            hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-            mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
+            mask = self.get_color_mask(image)
         elif mode == "MOG2":
-            # TODO: not working (it considers everything shadows or moves (too dark background)
-            fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
-            # fgbg= cv2.BackgroundSubtractorMOG2(0, 50)
-            # fgbg=cv2.BackgroundSubtractor()
-            # fgbg = cv2.BackgroundSubtractorMOG()
-            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # TODO: ENV_DEPENDENCE: it could depend on the camera quality
-            # blur = cv2.medianBlur(gray_image, 100)
-            blur_radius = 5
-            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
-            # cv2.imshow("blurred", blur)
-            mask = fgbg.apply(blurred)
+            mask = self.get_MOG2_mask(image)
         elif mode == "diff":
-            # TODO: ENV_DEPENDENCE: it could depend on the camera quality
-            blur_radius = 5
-            blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
-            if self.first_frame is None or self.discarded_frames != 0:
-                self.discarded_frames -= 1
-                self.first_frame = image
-            else:
-                diff = cv2.absdiff(blurred, self.first_frame)
-                # print "diff"
-                gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-                cv2.imshow("diff", gray_diff)
-                _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
+            mask = self.get_simple_diff_mask(image)
+        elif mode == "mixed":
+            diff_mask = self.get_simple_diff_mask(image)
+
+            color_mask = self.get_color_mask(image)
+
+            if diff_mask is not None and color_mask is not None:
+                mask = cv2.bitwise_and(diff_mask,color_mask)
+                cv2.imshow("diff_mask", diff_mask)
+                cv2.imshow("color_mask", color_mask)
         return mask
 
+    def get_color_mask(self, image):
+        # Blur the image
+        blur_radius = 5
+        blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
+        return mask
+
+    def get_simple_diff_mask(self, image):
+        mask = None
+        # TODO: ENV_DEPENDENCE: it could depend on the camera quality
+        blur_radius = 5
+        blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
+        if self.first_frame is None or self.discarded_frames != 0:
+            self.discarded_frames -= 1
+            self.first_frame = image
+        else:
+            diff = cv2.absdiff(blurred, self.first_frame)
+            # print "diff"
+            gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+            cv2.imshow("diff", gray_diff)
+            _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
+        return mask
+
+    def get_MOG2_mask(self, image):
+        # TODO: not working (it considers everything shadows or moves (too dark background)
+        fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
+        # fgbg= cv2.BackgroundSubtractorMOG2(0, 50)
+        # fgbg=cv2.BackgroundSubtractor()
+        # fgbg = cv2.BackgroundSubtractorMOG()
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # TODO: ENV_DEPENDENCE: it could depend on the camera quality
+        # blur = cv2.medianBlur(gray_image, 100)
+        blur_radius = 5
+        blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
+        # cv2.imshow("blurred", blur)
+        mask = fgbg.apply(blurred)
+        return mask
 
 def main():
     hand_detector = HandDetector()
