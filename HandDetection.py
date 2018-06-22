@@ -7,6 +7,24 @@ from collections import deque
 
 import cv2
 import numpy as np
+import random
+
+
+def get_random_color(n=1):
+    ret = []
+    r = int(random.random() * 256)
+    g = int(random.random() * 256)
+    b = int(random.random() * 256)
+    step = 256 / n
+    for i in range(n):
+        r += step
+        g += step
+        b += step
+        r = int(r) % 256
+        g = int(g) % 256
+        b = int(b) % 256
+        ret.append((r, g, b))
+    return ret
 
 
 # Function to find angle between two vectors
@@ -37,22 +55,26 @@ def find_distance(point_a, point_b):
 
 
 class Hand:
-    id = None
-    fingertips = []
-    intertips = []
-    center_of_mass = None
-    finger_distances = []
-    average_defect_distance = []
-    contour = None,
-    bounding_rect = None
-    tracking_fails = None
-
     def __init__(self):
-        pass
+        self.id = None
+        self.fingertips = []
+        self.intertips = []
+        self.center_of_mass = None
+        self.finger_distances = []
+        self.average_defect_distance = []
+        self.contour = None,
+        self.bounding_rect = None
+        self.tracking_fails = 0
+        self.detection_fail = 0
+        self.frame_count = 0
+        self.tracking_window = None
+        self.tracked = False
+        self.detected = True
+        self.position_history = []
+        self.color = get_random_color()[0]
 
 
 def clean_mask_noise(mask):
-
     # Kernel matrices for morphological transformation
     kernel_square = np.ones((11, 11), np.uint8)
     kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -82,28 +104,6 @@ def get_color_mask(image):
     return mask
 
 
-def follow(frame, mask, bounding_rect):
-    upscaled_bounding_rect = bounding_rect  # self.upscale_bounding_rec(bounding_rect,frame.shape,20)
-    x, y, w, h = upscaled_bounding_rect
-    track_window = upscaled_bounding_rect
-    # set up the ROI for tracking
-    roi = frame[y:y + h, x:x + w]
-    hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
-    roi_mask = mask[y:y + h, x:x + w]
-    cv2.imshow("roi_follow_mask", roi_mask)
-    roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
-    cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-    # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-    term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
-    # apply meanshift to get the new location
-    ret, track_window = cv2.meanShift(dst, track_window, term_crit)
-    return ret, track_window
-    # return ret, (max(newx-30,0), max(newy-30,0), min(neww+30,frame.shape[1]), min(newh+30,frame.shape[0]))
-
-
 def upscale_bounding_rec(bounding_rect, frame_shape, upscaled_pixels):
     x, y, w, h = bounding_rect
     new_x = max(x - int(upscaled_pixels / 2), 0)
@@ -120,6 +120,9 @@ def upscale_bounding_rec(bounding_rect, frame_shape, upscaled_pixels):
         new_h = h + exceded_pixels
     upscaled_bounding_rect = (new_x, new_y, new_w, new_h)
     return upscaled_bounding_rect
+
+
+
 
 
 def extract_contour_inside_circle(full_contour, circle):
@@ -148,6 +151,60 @@ class HandDetector:
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
+    def update_detection(self, frame):
+        for hand in self.hands:
+            hand.detected = False
+            hand.frame_count += 1
+        detected_hands = self.detect_hands(frame)
+        for detected_hand in detected_hands:
+            if len(self.hands) > 0:
+                hand_exists = False
+                for existing_hand_index, existing_hand in enumerate(self.hands):
+                    intersection_value, _ = self.calculate_bounding_rects_intersection(
+                        detected_hand.bounding_rect,
+                        existing_hand.bounding_rect)
+                    if intersection_value > 0.1:
+                        hand_exists = True
+                        detected_hand.detected = True
+                        detected_hand.id = existing_hand.id
+                        detected_hand.position_history = existing_hand.position_history
+                        detected_hand.color = existing_hand.color
+                        self.hands[existing_hand_index] = detected_hand
+                        break
+                if not hand_exists:
+                    detected_hand.id = str(self.next_hand_id)
+                    detected_hand.detected = True
+                    self.next_hand_id += 1
+                    self.hands.append(detected_hand)
+                    print "New hand"
+            else:
+                detected_hand.id = str(self.next_hand_id)
+                detected_hand.detected = True
+                self.next_hand_id += 1
+                self.hands.append(detected_hand)
+                print "New hand"
+
+    def update_tracking(self, frame):
+        if len(self.hands) > 0:
+            for index, hand in enumerate(self.hands):
+                hand.tracked = False
+                hands_mask = self.create_hands_mask(frame)
+                ret, tracking_window = self.follow(frame, hands_mask, hand.bounding_rect)
+                if ret and tracking_window is not None:
+                    updated_hand = self.update_hand_charasteristics(frame, hand)
+                    updated_hand.detected = hand.detected
+                    updated_hand.tracking_window = tracking_window
+                    updated_hand.detection_fail = hand.detection_fail
+                    if updated_hand is not None:
+                        updated_hand.tracked = True
+                        self.hands[index] = updated_hand
+                    else:
+                        hand.tracked = False
+                        hand.tracking_fails += 1
+                else:
+                    hand.tracked = False
+                    hand.tracking_fails += 1
+
     def compute(self):
         while self.capture.isOpened():
 
@@ -156,55 +213,24 @@ class HandDetector:
 
             # Capture frames from the camera
             ret, frame = self.capture.read()
+
             if ret is True:
-                new_hands = self.detect_hands(frame)
-                for hand1 in new_hands:
-                    if len(self.hands) > 0:
-                        existing_hand = False
-                        for hand2 in self.hands:
-                            intersection_value, _ = self.calculate_bounding_rects_intersection(hand1.bounding_rect,
-                                                                                               hand2.bounding_rect)
-                            if intersection_value > 0.1:
-                                existing_hand = True
-                                break
-                        if not existing_hand:
-                            hand1.id = str(self.next_hand_id)
-                            self.next_hand_id += 1
-                            self.hands.append(hand1)
-                            print "New hand"
-                    else:
-                        hand1.id = str(self.next_hand_id)
-                        self.next_hand_id += 1
-                        self.hands.append(hand1)
-                        print "New hand"
+                self.update_detection(frame)
 
-                if len(self.hands) > 0:
-                    for index, hand in enumerate(self.hands):
-                        hands_mask = self.create_hands_mask(frame)
-                        ret, bounding_rect = follow(frame, hands_mask, hand.bounding_rect)
-                        if ret:
-                            print "updating hand"
-                            hand.bounding_rect = bounding_rect
-                            updated_hand = self.update_hand_charasteristics(frame, hand)
-                            if updated_hand is not None:
-                                self.hands[index] = updated_hand
-                            else:
-                                # TODO: How to decided when to remove
-                                if hand.tracking_fails > 10:
-                                    print "removing hand"
-                                    self.hands.remove(hand)
-                                else:
-                                    hand.tracking_fails += 1
+                self.update_tracking(frame)
+
+                for index, hand in enumerate(self.hands):
+                    if hand.detected is False:
+                        hand.detection_fail += 1
+                        if hand.tracked:
+                            hand.bounding_rect = hand.tracking_window
                         else:
-                            # TODO: How to decided when to remove
-                            if hand.tracking_fails > 10:
-                                print "removing hand"
-                                self.hands.remove(hand)
-                            else:
-                                hand.tracking_fails += 1
+                            print "_____________No updated information"
+                    # TODO: How to decided when to remove
+                    if (hand.tracking_fails > 20 and hand.detected is False) or (hand.detection_fail > 20):
+                        print "removing hand"
+                        self.hands.remove(hand)
 
-                    # Finger is pointed/raised if the distance of between fingertip to the center mass is larger
-                    # than the distance of average finger webbing to center mass by 130 pixels
                 overlayed_frame = frame.copy()
                 for hand in self.hands:
                     overlayed_frame = self.draw_hand_overlay(frame, hand)
@@ -219,7 +245,7 @@ class HandDetector:
                 print "No video detected"
 
             # close the output video by pressing 'ESC'
-            k = cv2.waitKey(5) & 0xFF
+            k = cv2.waitKey(50) & 0xFF
             if k == 27:
                 break
 
@@ -256,6 +282,27 @@ class HandDetector:
         # return the intersection over union value
         return iou, (x_left, y_top, x_right, y_bottom)
 
+    def follow(self, frame, mask, bounding_rect):
+        upscaled_bounding_rect = bounding_rect  # self.upscale_bounding_rec(bounding_rect,frame.shape,20)
+        x, y, w, h = upscaled_bounding_rect
+        track_window = upscaled_bounding_rect
+        # set up the ROI for tracking
+        roi = frame[y:y + h, x:x + w]
+        hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
+        roi_mask = mask[y:y + h, x:x + w]
+        cv2.imshow("roi_follow_mask", roi_mask)
+        roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
+        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+        # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
+        term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
+        # apply meanshift to get the new location
+        ret, track_window = cv2.meanShift(dst, track_window, term_crit)
+        return ret, track_window
+        # return ret, (max(newx-30,0), max(newy-30,0), min(neww+30,frame.shape[1]), min(newh+30,frame.shape[0]))
+
     # def calculate_hand_interst_points(self, frame, cnts):
     #     #  convexity defect
     #
@@ -291,20 +338,26 @@ class HandDetector:
         for defect in hand.intertips:
             cv2.circle(frame, tuple(defect), 8, [211, 84, 0], -1)
 
-        # Print number of pointed fingers
-        cv2.putText(frame, str(len(self.hands[0].fingertips)), (100, 100), self.font, 2, (0, 0, 0), 2)
-
         x, y, w, h = hand.bounding_rect
+        # cv2.putText(frame, (str(w)), (x + w, y), self.font, 0.3, [255, 255, 255], 1)
+        # cv2.putText(frame, (str(h)), (x + w, y + h), self.font, 0.3, [255, 255, 255], 1)
+        # cv2.putText(frame, (str(w * h)), (x + w / 2, y + h / 2), self.font, 0.3, [255, 255, 255], 1)
+        # cv2.putText(frame, (str(x)+", "+str(y)), (x-10, y-10), self.font, 0.3, [255, 255, 255], 1)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
         cv2.drawContours(frame, [hand.contour], -1, (255, 255, 255), 2)
+
+        points = np.array(hand.position_history)
+        cv2.polylines(img=frame, pts=np.int32([points]), isClosed=False, color=hand.color)
 
         if hand.center_of_mass is not None:
             # Draw center mass
             cv2.circle(frame, hand.center_of_mass, 7, [100, 0, 255], 2)
             cv2.putText(frame, 'Center', tuple(hand.center_of_mass), self.font, 0.5, (255, 255, 255), 1)
 
-        cv2.putText(frame, hand.id, (x, y), self.font, 0.5, (255, 255, 255), 1)
+        hand_string = "hand " + str(hand.id) + ": detected =" + str(hand.detected) + " tracked =" + str(
+            hand.tracked) + " at " + str(hand.center_of_mass)
+        cv2.putText(frame, hand_string, (10, 30 + 15 * int(hand.id)), self.font, 0.5, (255, 255, 255), 1)
         return frame
 
     def detect_hands(self, frame):
@@ -474,9 +527,19 @@ class HandDetector:
                             hand_contour = extract_contour_inside_circle(hand_contour, (center, radius))
                             hand_bounding_rect = cv2.boundingRect(hand_contour)
                             # self.follow(frame,hands_mask,(int(max(y-radius,0)), int(max(x-radius,0)) ,int(radius*2),int(radius*2)))
-                            # other = frame.copy()
-                            # cv2.circle(frame, center, radius, (0, 255, 0), 2)
-                            # cv2.imshow("Hand circunferences", other)
+                            other = frame.copy()
+                            x, y, w, h = hand_bounding_rect
+                            cv2.circle(other, center, radius, (255, 255, 0), 2)
+                            cv2.drawContours(other, [hand_contour], 0, (255, 255, 0))
+                            cv2.rectangle(other, (hand_bounding_rect[0], hand_bounding_rect[1]), (
+                                hand_bounding_rect[0] + hand_bounding_rect[2],
+                                hand_bounding_rect[1] + hand_bounding_rect[3]), (255, 255, 0), 1)
+                            cv2.putText(other, (str(w)), (x + w, y), self.font, 0.3, [255, 255, 255], 1)
+                            cv2.putText(other, (str(h)), (x + w, y + h), self.font, 0.3, [100, 255, 255], 1)
+                            cv2.putText(other, (str(w * h)), (x + w / 2, y + h / 2), self.font, 0.3, [100, 100, 255], 1)
+                            cv2.putText(other, (str(x) + ", " + str(y)), (x - 10, y - 10), self.font, 0.3,
+                                        [255, 255, 255], 1)
+                            cv2.imshow("Hand circunferences", other)
                             # # x, y, w, h = cv2.boundingRect(fingers_contour)
                             # # cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                             # print contour_indices
@@ -540,7 +603,7 @@ class HandDetector:
                             # #     contour_indices.append(s)
                             # #     contour_indices.append(e)
                             # # hand_contour = np.take(hand_contour, contour_indices, axis=0, mode="wrap")
-                            cv2.drawContours(frame, [hand_contour], 0, (0, 255, 0), 1)
+                            # cv2.drawContours(frame, [hand_contour], 0, (0, 255, 0), 1)
 
                             # cv2.drawContours(frame, [hull], 0, (0, 0, 255), 3)
 
@@ -599,6 +662,7 @@ class HandDetector:
                             hand.contour = hand_contour
                             hand.bounding_rect = hand_bounding_rect
                             hand.tracking_fails = 0
+                            # hand.position_history.append(hand.center_of_mass)
                             new_hands.append(hand)
         return new_hands
 
@@ -613,14 +677,20 @@ class HandDetector:
         updated_hand.contour = None
         updated_hand.bounding_rect = hand.bounding_rect
         updated_hand.tracking_fails = hand.tracking_fails
+        updated_hand.position_history = hand.position_history
+        updated_hand.color = hand.color
         # Create a binary image with where white will be skin colors and rest is black
         hands_mask = self.create_hands_mask(frame)
         current_hand_roi_mask = np.zeros(hands_mask.shape, dtype='uint8')
         x, y, w, h = hand.bounding_rect
         current_hand_roi_mask[y:y + h, x:x + w] = 255
         current_hand_mask = cv2.bitwise_and(hands_mask, current_hand_roi_mask)
-
-        cv2.imshow("current hands_mask" + str(hand.id), current_hand_mask)
+        to_show = cv2.resize(current_hand_mask, None, fx=.3, fy=.3, interpolation=cv2.INTER_CUBIC)
+        # cv2.putText(to_show, (str(w)), (x + w, y), self.font, 0.3, [255, 255, 255], 1)
+        # cv2.putText(to_show, (str(h)), (x + w, y + h), self.font, 0.3, [100, 255, 255], 1)
+        # cv2.putText(to_show, (str(w * h)), (x + w / 2, y + h / 2), self.font, 0.3, [100, 100, 255], 1)
+        # cv2.putText(to_show, (str(x)+", "+str(y)), (x-10, y-10), self.font, 0.3, [255, 255, 255], 1)
+        cv2.imshow("current hands_mask" + str(hand.id), to_show)
 
         ret, thresh = cv2.threshold(current_hand_mask, 127, 255, 0)
 
@@ -742,6 +812,7 @@ class HandDetector:
                         cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
                         center_of_mass = (cx, cy)
                         updated_hand.center_of_mass = center_of_mass
+                        updated_hand.position_history.append(center_of_mass)
 
                     if center_of_mass is not None and len(intertips_coords) > 0:
                         # Distance from each finger defect(finger webbing) to the center mass
@@ -781,6 +852,8 @@ class HandDetector:
                                     fingertips_coords[i][1] - center_of_mass[0], 2))
                             finger_distances.append(distance)
                         updated_hand.finger_distances = finger_distances
+        else:
+            return None
         return updated_hand
 
     def exit(self):
