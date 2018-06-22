@@ -2,19 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import math
-from copy import copy, deepcopy
-
-import cv2
-import numpy as np
 import time
 from collections import deque
 
-from numpy import trace
-from scipy.linalg._fblas import ccopy
-
-
-def nothing(x):
-    pass
+import cv2
+import numpy as np
 
 
 # Function to find angle between two vectors
@@ -28,8 +20,8 @@ def calculate_angle(v1, v2):
 
 
 # Function to find distance between two points in a list of lists
-def find_distance(A, B):
-    return np.sqrt(np.power((A[0][0] - B[0][0]), 2) + np.power((A[0][1] - B[0][1]), 2))
+def find_distance(point_a, point_b):
+    return np.sqrt(np.power((point_a[0][0] - point_b[0][0]), 2) + np.power((point_a[0][1] - point_b[0][1]), 2))
 
 
 # # Creating a window for HSV track bars
@@ -44,7 +36,102 @@ def find_distance(A, B):
 # cv2.createTrackbar('v', 'HSV_TrackBar', 0, 255, nothing)
 
 
-class HandDetector():
+class Hand:
+    id = None
+    fingertips = []
+    intertips = []
+    center_of_mass = None
+    finger_distances = []
+    average_defect_distance = []
+    contour = None,
+    bounding_rect = None
+    tracking_fails = None
+
+    def __init__(self):
+        pass
+
+
+def clean_mask_noise(mask):
+
+    # Kernel matrices for morphological transformation
+    kernel_square = np.ones((11, 11), np.uint8)
+    kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+
+    # Perform morphological transformations to filter out the background noise
+    # Dilation increase skin color area
+    # Erosion increase skin color area
+    dilation = cv2.dilate(mask, kernel_ellipse, iterations=1)
+    erosion = cv2.erode(dilation, kernel_square, iterations=1)
+    dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
+    # filtered = cv2.medianBlur(dilation2, 5)
+    # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
+    # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+    # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+    median = cv2.medianBlur(dilation2, 5)
+    return median
+
+
+def get_color_mask(image):
+    # Blur the image
+    blur_radius = 5
+    blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
+    # Convert to HSV color space
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
+    return mask
+
+
+def follow(frame, mask, bounding_rect):
+    upscaled_bounding_rect = bounding_rect  # self.upscale_bounding_rec(bounding_rect,frame.shape,20)
+    x, y, w, h = upscaled_bounding_rect
+    track_window = upscaled_bounding_rect
+    # set up the ROI for tracking
+    roi = frame[y:y + h, x:x + w]
+    hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
+    roi_mask = mask[y:y + h, x:x + w]
+    cv2.imshow("roi_follow_mask", roi_mask)
+    roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
+    cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+    # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
+    term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
+    # apply meanshift to get the new location
+    ret, track_window = cv2.meanShift(dst, track_window, term_crit)
+    return ret, track_window
+    # return ret, (max(newx-30,0), max(newy-30,0), min(neww+30,frame.shape[1]), min(newh+30,frame.shape[0]))
+
+
+def upscale_bounding_rec(bounding_rect, frame_shape, upscaled_pixels):
+    x, y, w, h = bounding_rect
+    new_x = max(x - int(upscaled_pixels / 2), 0)
+    new_y = max(y - int(upscaled_pixels / 2), 0)
+    if x + w + int(upscaled_pixels / 2) < frame_shape[1]:
+        new_w = w + int(upscaled_pixels / 2)
+    else:
+        exceded_pixels = x + w + int(upscaled_pixels / 2) - frame_shape[1]
+        new_w = w + exceded_pixels
+    if y + h + int(upscaled_pixels / 2) < frame_shape[0]:
+        new_h = h + int(upscaled_pixels / 2)
+    else:
+        exceded_pixels = y + h + int(upscaled_pixels / 2) - frame_shape[0]
+        new_h = h + exceded_pixels
+    upscaled_bounding_rect = (new_x, new_y, new_w, new_h)
+    return upscaled_bounding_rect
+
+
+def extract_contour_inside_circle(full_contour, circle):
+    center, radius = circle
+    new_contour = []
+    for point in full_contour:
+        if (point[0][0] - center[0]) ** 2 + (point[0][1] - center[1]) ** 2 < radius ** 2:
+            new_contour.append(point)
+    return np.array(new_contour)
+
+
+class HandDetector:
     def __init__(self, source=0):
         # Open Camera object
         # self.capture = cv2.VideoCapture(0)
@@ -65,7 +152,7 @@ class HandDetector():
         while self.capture.isOpened():
 
             # Measure execution time
-            start_time = time.time()
+            # start_time = time.time()
 
             # Capture frames from the camera
             ret, frame = self.capture.read()
@@ -75,17 +162,18 @@ class HandDetector():
                     if len(self.hands) > 0:
                         existing_hand = False
                         for hand2 in self.hands:
-                            intersection_value, _ = self.calculate_bounding_rects_intersection(hand1['bounding_rect'], hand2['bounding_rect'])
-                            if intersection_value >0.1 :
-                                existing_hand=True
+                            intersection_value, _ = self.calculate_bounding_rects_intersection(hand1.bounding_rect,
+                                                                                               hand2.bounding_rect)
+                            if intersection_value > 0.1:
+                                existing_hand = True
                                 break
                         if not existing_hand:
-                            hand1['ID']=str(self.next_hand_id)
-                            self.next_hand_id+=1
+                            hand1.id = str(self.next_hand_id)
+                            self.next_hand_id += 1
                             self.hands.append(hand1)
                             print "New hand"
                     else:
-                        hand1['ID'] = str(self.next_hand_id)
+                        hand1.id = str(self.next_hand_id)
                         self.next_hand_id += 1
                         self.hands.append(hand1)
                         print "New hand"
@@ -93,28 +181,27 @@ class HandDetector():
                 if len(self.hands) > 0:
                     for index, hand in enumerate(self.hands):
                         hands_mask = self.create_hands_mask(frame)
-                        ret, bounding_rect = self.follow(frame,hands_mask,hand["bounding_rect"])
+                        ret, bounding_rect = follow(frame, hands_mask, hand.bounding_rect)
                         if ret:
                             print "updating hand"
-                            hand["bounding_rect"] = bounding_rect
+                            hand.bounding_rect = bounding_rect
                             updated_hand = self.update_hand_charasteristics(frame, hand)
                             if updated_hand is not None:
                                 self.hands[index] = updated_hand
                             else:
-                                #TODO: How to decided when to remove
-                                if hand['tracking_fails'] > 10:
+                                # TODO: How to decided when to remove
+                                if hand.tracking_fails > 10:
                                     print "removing hand"
                                     self.hands.remove(hand)
                                 else:
-                                    hand['tracking_fails']+=1
+                                    hand.tracking_fails += 1
                         else:
                             # TODO: How to decided when to remove
-                            if hand['tracking_fails'] > 10:
+                            if hand.tracking_fails > 10:
                                 print "removing hand"
                                 self.hands.remove(hand)
                             else:
-                                hand['tracking_fails'] += 1
-
+                                hand.tracking_fails += 1
 
                     # Finger is pointed/raised if the distance of between fingertip to the center mass is larger
                     # than the distance of average finger webbing to center mass by 130 pixels
@@ -136,7 +223,6 @@ class HandDetector():
             if k == 27:
                 break
 
-
     def calculate_bounding_rects_intersection(self, bounding_rect_1, bounding_rect_2):
         b1_x_left = bounding_rect_1[0]
         b1_y_top = bounding_rect_1[1]
@@ -155,17 +241,17 @@ class HandDetector():
             return 0, None
 
         # compute the area of intersection rectangle
-        interArea = (x_right - x_left + 1) * (y_bottom - y_top + 1)
+        intersection_area = (x_right - x_left + 1) * (y_bottom - y_top + 1)
 
         # compute the area of both the prediction and ground-truth
         # rectangles
-        boxAArea = (b1_x_right - b1_x_left + 1) * (b1_y_bottom - b1_y_top + 1)
-        boxBArea = (b2_x_right - b2_x_left + 1) * (b2_y_bottom - b2_y_top + 1)
+        box_a_area = (b1_x_right - b1_x_left + 1) * (b1_y_bottom - b1_y_top + 1)
+        box_b_area = (b2_x_right - b2_x_left + 1) * (b2_y_bottom - b2_y_top + 1)
 
         # compute the intersection over union by taking the intersection
         # area and dividing it by the sum of prediction + ground-truth
         # areas - the interesection area
-        iou = interArea / float(boxAArea + boxBArea - interArea)
+        iou = intersection_area / float(box_a_area + box_b_area - intersection_area)
 
         # return the intersection over union value
         return iou, (x_left, y_top, x_right, y_bottom)
@@ -197,31 +283,29 @@ class HandDetector():
     #     return interdigs
 
     def draw_hand_overlay(self, frame, hand):
-        for finger_number, fingertip in enumerate(hand["fingertips"]):
+        for finger_number, fingertip in enumerate(hand.fingertips):
             cv2.circle(frame, tuple(fingertip), 10, [255, 100, 255], 3)
             cv2.putText(frame, 'finger' + str(finger_number), tuple(fingertip), self.font, 0.5,
                         (255, 255, 255),
                         1)
-        for defect in hand["intertips"]:
+        for defect in hand.intertips:
             cv2.circle(frame, tuple(defect), 8, [211, 84, 0], -1)
 
         # Print number of pointed fingers
-        cv2.putText(frame, str(len(self.hands[0]["fingertips"])), (100, 100), self.font, 2, (0, 0, 0), 2)
+        cv2.putText(frame, str(len(self.hands[0].fingertips)), (100, 100), self.font, 2, (0, 0, 0), 2)
 
-        x, y, w, h = hand['bounding_rect']
+        x, y, w, h = hand.bounding_rect
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        cv2.drawContours(frame, [hand['contour']], -1, (255, 255, 255), 2)
+        cv2.drawContours(frame, [hand.contour], -1, (255, 255, 255), 2)
 
-        if hand['center_of_mass'] is not None:
+        if hand.center_of_mass is not None:
             # Draw center mass
-            cv2.circle(frame, hand['center_of_mass'], 7, [100, 0, 255], 2)
-            cv2.putText(frame, 'Center', tuple(hand['center_of_mass']), self.font, 0.5, (255, 255, 255), 1)
+            cv2.circle(frame, hand.center_of_mass, 7, [100, 0, 255], 2)
+            cv2.putText(frame, 'Center', tuple(hand.center_of_mass), self.font, 0.5, (255, 255, 255), 1)
 
-        cv2.putText(frame, hand['ID'], (x,y), self.font, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, hand.id, (x, y), self.font, 0.5, (255, 255, 255), 1)
         return frame
-
-
 
     def detect_hands(self, frame):
         new_hands = []
@@ -260,12 +344,11 @@ class HandDetector():
                     hull2 = cv2.convexHull(hand_contour, returnPoints=False)
                     defects = cv2.convexityDefects(hand_contour, hull2)
 
-
                     # Get defect points and draw them in the original image
                     if defects is not None:
                         intertips_coords = []
                         intertips_indexes = []
-                        FarDefect = []
+                        far_defect = []
                         fingertips_coords = []
                         fingertips_indexes = []
                         defect_indices = []
@@ -274,7 +357,7 @@ class HandDetector():
                             start = tuple(hand_contour[s][0])
                             end = tuple(hand_contour[e][0])
                             far = tuple(hand_contour[f][0])
-                            FarDefect.append(far)
+                            far_defect.append(far)
                             # cv2.line(frame, start, end, [0, 255, 0], 1)
                             a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
                             b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
@@ -322,7 +405,7 @@ class HandDetector():
 
                             # cv2.circle(frame, far, 10, [100, 255, 255], 3)
                         # cv2.drawContours(frame, [hand_contour], 0, (255, 0, 0), 2)
-                        if len(fingertips_coords)==5 and len(fingertips_coords)==len(intertips_coords)+1:
+                        if len(fingertips_coords) == 5 and len(fingertips_coords) == len(intertips_coords) + 1:
                             # print defect_indices
                             # new_defect_indices = []
                             # if min(defect_indices)-1 <= 0:
@@ -383,11 +466,12 @@ class HandDetector():
                             #     # contour_indices.append(s)
                             #     # contour_indices.append(f)
                             #     # contour_indices.append(e)
-                            fingers_contour = np.take(hand_contour, fingertips_indexes+intertips_indexes, axis=0, mode="wrap")
+                            fingers_contour = np.take(hand_contour, fingertips_indexes + intertips_indexes, axis=0,
+                                                      mode="wrap")
                             (x, y), radius = cv2.minEnclosingCircle(fingers_contour)
                             center = (int(x), int(y))
-                            radius = int(radius)+10
-                            hand_contour = self.extract_contour_inside_circle(hand_contour, (center, radius))
+                            radius = int(radius) + 10
+                            hand_contour = extract_contour_inside_circle(hand_contour, (center, radius))
                             hand_bounding_rect = cv2.boundingRect(hand_contour)
                             # self.follow(frame,hands_mask,(int(max(y-radius,0)), int(max(x-radius,0)) ,int(radius*2),int(radius*2)))
                             # other = frame.copy()
@@ -456,35 +540,34 @@ class HandDetector():
                             # #     contour_indices.append(s)
                             # #     contour_indices.append(e)
                             # # hand_contour = np.take(hand_contour, contour_indices, axis=0, mode="wrap")
-                            cv2.drawContours(frame, [hand_contour], 0, (0,255, 0), 1)
+                            cv2.drawContours(frame, [hand_contour], 0, (0, 255, 0), 1)
 
                             # cv2.drawContours(frame, [hull], 0, (0, 0, 255), 3)
 
                             # Find moments of the largest contour
                             moments = cv2.moments(hand_contour)
-                            centerMass = None
+                            center_mass = None
                             finger_distances = None
-                            AverageDefectDistance = None
+                            average_defect_distance = None
                             # Central mass of first order moments
                             if moments['m00'] != 0:
                                 cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
                                 cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
-                                centerMass = (cx, cy)
+                                center_mass = (cx, cy)
 
                                 # Distance from each finger defect(finger webbing) to the center mass
-                                distanceBetweenDefectsToCenter = []
+                                distance_between_defects_to_center = []
                                 for far in intertips_coords:
                                     x = np.array(far)
-                                    center_mass_array = np.array(centerMass)
+                                    center_mass_array = np.array(center_mass)
                                     distance = np.sqrt(
-                                        np.power(x[0] - center_mass_array[0], 2) + np.power(x[1] - center_mass_array[1], 2))
-                                    distanceBetweenDefectsToCenter.append(distance)
-
-
+                                        np.power(x[0] - center_mass_array[0], 2) + np.power(x[1] - center_mass_array[1],
+                                                                                            2))
+                                    distance_between_defects_to_center.append(distance)
 
                                 # Get an average of three shortest distances from finger webbing to center mass
-                                sortedDefectsDistances = sorted(distanceBetweenDefectsToCenter)
-                                AverageDefectDistance = np.mean(sortedDefectsDistances[0:2])
+                                sorted_defects_distances = sorted(distance_between_defects_to_center)
+                                average_defect_distance = np.mean(sorted_defects_distances[0:2])
 
                                 # # Get fingertip points from contour hull
                                 # # If points are in proximity of 80 pixels, consider as a single point in the group
@@ -504,42 +587,40 @@ class HandDetector():
                                 finger_distances = []
                                 for i in range(0, len(fingertips_coords)):
                                     distance = np.sqrt(
-                                        np.power(fingertips_coords[i][0] - centerMass[0], 2) + np.power(
-                                            fingertips_coords[i][1] - centerMass[0], 2))
+                                        np.power(fingertips_coords[i][0] - center_mass[0], 2) + np.power(
+                                            fingertips_coords[i][1] - center_mass[0], 2))
                                     finger_distances.append(distance)
-                            hand = {
-                                'fingertips': fingertips_coords,
-                                'intertips': intertips_coords,
-                                'center_of_mass': centerMass,
-                                'finger_distances': finger_distances,
-                                'average_defect_distance': AverageDefectDistance,
-                                'contour': hand_contour,
-                                'bounding_rect': hand_bounding_rect,
-                                'tracking_fails': 0
-                            }
+                            hand = Hand()
+                            hand.fingertips = fingertips_coords
+                            hand.intertips = intertips_coords
+                            hand.center_of_mass = center_mass
+                            hand.finger_distances = finger_distances
+                            hand.average_defect_distance = average_defect_distance
+                            hand.contour = hand_contour
+                            hand.bounding_rect = hand_bounding_rect
+                            hand.tracking_fails = 0
                             new_hands.append(hand)
         return new_hands
 
-    def update_hand_charasteristics(self, frame, hand ):
-        updated_hand = {
-            'ID': hand['ID'],
-            'fingertips': [],
-            'intertips': [],
-            'center_of_mass': None,
-            'finger_distances': [],
-            'average_defect_distance': [],
-            'contour': None,
-            'bounding_rect': hand['bounding_rect'],
-            'tracking_fails': hand['tracking_fails']
-        }
+    def update_hand_charasteristics(self, frame, hand):
+        updated_hand = Hand()
+        updated_hand.id = hand.id
+        updated_hand.fingertips = []
+        updated_hand.intertips = []
+        updated_hand.center_of_mass = None
+        updated_hand.finger_distances = []
+        updated_hand.average_defect_distance = []
+        updated_hand.contour = None
+        updated_hand.bounding_rect = hand.bounding_rect
+        updated_hand.tracking_fails = hand.tracking_fails
         # Create a binary image with where white will be skin colors and rest is black
         hands_mask = self.create_hands_mask(frame)
         current_hand_roi_mask = np.zeros(hands_mask.shape, dtype='uint8')
-        x,y,w,h = hand['bounding_rect']
-        current_hand_roi_mask[y:y+h,x:x+w] = 255
-        current_hand_mask = cv2.bitwise_and(hands_mask,current_hand_roi_mask)
+        x, y, w, h = hand.bounding_rect
+        current_hand_roi_mask[y:y + h, x:x + w] = 255
+        current_hand_mask = cv2.bitwise_and(hands_mask, current_hand_roi_mask)
 
-        cv2.imshow("current hands_mask"+str(hand['ID']), current_hand_mask)
+        cv2.imshow("current hands_mask" + str(hand.id), current_hand_mask)
 
         ret, thresh = cv2.threshold(current_hand_mask, 127, 255, 0)
 
@@ -569,8 +650,8 @@ class HandDetector():
 
                     # Find convex defects
             if hand_contour is not None:
-                updated_hand['contour'] = hand_contour
-                updated_hand['tracking_fails'] = 0
+                updated_hand.contour = hand_contour
+                updated_hand.tracking_fails = 0
                 hull2 = cv2.convexHull(hand_contour, returnPoints=False)
                 defects = cv2.convexityDefects(hand_contour, hull2)
 
@@ -578,7 +659,7 @@ class HandDetector():
                 if defects is not None:
                     intertips_coords = []
                     intertips_indexes = []
-                    FarDefect = []
+                    far_defect = []
                     fingertips_coords = []
                     fingertips_indexes = []
                     defect_indices = []
@@ -587,7 +668,7 @@ class HandDetector():
                         start = tuple(hand_contour[s][0])
                         end = tuple(hand_contour[e][0])
                         far = tuple(hand_contour[f][0])
-                        FarDefect.append(far)
+                        far_defect.append(far)
                         # cv2.line(frame, start, end, [0, 255, 0], 1)
                         a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
                         b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
@@ -635,46 +716,49 @@ class HandDetector():
 
                         # cv2.circle(frame, far, 10, [100, 255, 255], 3)
                     # cv2.drawContours(frame, [hand_contour], 0, (255, 0, 0), 2)
-                    if len(fingertips_coords) <= 5 and len(fingertips_coords) > 2 and len(fingertips_coords) == len(intertips_coords) + 1:
-                        updated_hand['fingertips']= fingertips_coords
-                        updated_hand['intertips'] = intertips_coords
+                    if 5 >= len(fingertips_coords) > 2 and len(fingertips_coords) == len(intertips_coords) + 1:
+                        updated_hand.fingertips = fingertips_coords
+                        updated_hand.intertips = intertips_coords
 
-                        if len(fingertips_coords) ==5:
-                            fingers_contour = np.take(hand_contour, fingertips_indexes + intertips_indexes, axis=0,
+                        if len(fingertips_coords) == 5:
+                            fingers_contour = np.take(hand_contour,
+                                                      fingertips_indexes + intertips_indexes,
+                                                      axis=0,
                                                       mode="wrap")
                             (x, y), radius = cv2.minEnclosingCircle(fingers_contour)
                             center = (int(x), int(y))
                             radius = int(radius) + 10
-                            hand_contour = self.extract_contour_inside_circle(hand_contour, (center, radius))
-                            updated_hand['contour'] = hand_contour
+                            hand_contour = extract_contour_inside_circle(hand_contour, (center, radius))
+                            updated_hand.contour = hand_contour
 
                     # Find moments of the largest contour
                     moments = cv2.moments(hand_contour)
-                    centerMass = None
-                    finger_distances = None
-                    AverageDefectDistance = None
+                    center_of_mass = None
+                    finger_distances = []
+                    average_defect_distance = None
                     # Central mass of first order moments
                     if moments['m00'] != 0:
                         cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
                         cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
-                        centerMass = (cx, cy)
-                        updated_hand['center_of_mass'] = centerMass
+                        center_of_mass = (cx, cy)
+                        updated_hand.center_of_mass = center_of_mass
 
-                    if centerMass is not None and len(intertips_coords)>0:
+                    if center_of_mass is not None and len(intertips_coords) > 0:
                         # Distance from each finger defect(finger webbing) to the center mass
-                        distanceBetweenDefectsToCenter = []
+                        distance_between_defects_to_center = []
                         for far in intertips_coords:
                             x = np.array(far)
-                            center_mass_array = np.array(centerMass)
+                            center_mass_array = np.array(center_of_mass)
                             distance = np.sqrt(
-                                np.power(x[0] - center_mass_array[0], 2) + np.power(x[1] - center_mass_array[1],
-                                                                                    2))
-                            distanceBetweenDefectsToCenter.append(distance)
+                                np.power(x[0] - center_mass_array[0],
+                                         2) + np.power(x[1] - center_mass_array[1], 2)
+                            )
+                            distance_between_defects_to_center.append(distance)
 
                         # Get an average of three shortest distances from finger webbing to center mass
-                        sortedDefectsDistances = sorted(distanceBetweenDefectsToCenter)
-                        AverageDefectDistance = np.mean(sortedDefectsDistances[0:2])
-                        updated_hand['average_defect_distance']= AverageDefectDistance
+                        sorted_defects_distances = sorted(distance_between_defects_to_center)
+                        average_defect_distance = np.mean(sorted_defects_distances[0:2])
+                        updated_hand.average_defect_distance = average_defect_distance
                         # # Get fingertip points from contour hull
                         # # If points are in proximity of 80 pixels, consider as a single point in the group
                         # finger = []
@@ -688,26 +772,16 @@ class HandDetector():
                         # # The fingertip points are 5 hull points with largest y coordinates
                         # finger = sorted(finger, key=lambda x: x[1])
                         # fingers = finger[0:5]
-                    if centerMass is not None and len(fingertips_coords) > 0:
+                    if center_of_mass is not None and len(fingertips_coords) > 0:
                         # Calculate distance of each finger tip to the center mass
                         finger_distances = []
                         for i in range(0, len(fingertips_coords)):
                             distance = np.sqrt(
-                                np.power(fingertips_coords[i][0] - centerMass[0], 2) + np.power(
-                                    fingertips_coords[i][1] - centerMass[0], 2))
+                                np.power(fingertips_coords[i][0] - center_of_mass[0], 2) + np.power(
+                                    fingertips_coords[i][1] - center_of_mass[0], 2))
                             finger_distances.append(distance)
-                        updated_hand['finger_distances']= finger_distances
+                        updated_hand.finger_distances = finger_distances
         return updated_hand
-
-    def extract_contour_inside_circle(self, full_contour, circle):
-        center, radius = circle
-        new_contour = []
-        for point in full_contour:
-            if (point[0][0] - center[0]) ** 2 + (point[0][1] - center[1]) ** 2 < radius ** 2:
-                new_contour.append(point)
-        return np.array(new_contour)
-
-
 
     def exit(self):
         self.capture.release()
@@ -716,7 +790,7 @@ class HandDetector():
     def create_hands_mask(self, image, mode="diff"):
         mask = None
         if mode == "color":
-            mask = self.get_color_mask(image)
+            mask = get_color_mask(image)
         elif mode == "MOG2":
             mask = self.get_MOG2_mask(image)
         elif mode == "diff":
@@ -724,37 +798,17 @@ class HandDetector():
         elif mode == "mixed":
             diff_mask = self.get_simple_diff_mask(image)
 
-            color_mask = self.get_color_mask(image)
-            color_mask = self.clean_mask_noise(color_mask)
+            color_mask = get_color_mask(image)
+            color_mask = clean_mask_noise(color_mask)
 
             if diff_mask is not None and color_mask is not None:
-                mask = cv2.bitwise_and(diff_mask,color_mask)
+                mask = cv2.bitwise_and(diff_mask, color_mask)
                 cv2.imshow("diff_mask", diff_mask)
                 cv2.imshow("color_mask", color_mask)
         elif mode == "movement_buffer":
             # Absolutly unusefull
             mask = self.get_movement_buffer_mask(image)
         return mask
-
-    def clean_mask_noise(self, mask):
-
-        # Kernel matrices for morphological transformation
-        kernel_square = np.ones((11, 11), np.uint8)
-        kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-
-        # Perform morphological transformations to filter out the background noise
-        # Dilation increase skin color area
-        # Erosion increase skin color area
-        dilation = cv2.dilate(mask, kernel_ellipse, iterations=1)
-        erosion = cv2.erode(dilation, kernel_square, iterations=1)
-        dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
-        # filtered = cv2.medianBlur(dilation2, 5)
-        # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
-        # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-        # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-        median = cv2.medianBlur(dilation2, 5)
-        return median
 
     def get_movement_buffer_mask(self, image):
         mask = None
@@ -775,18 +829,10 @@ class HandDetector():
         _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
 
-    def get_color_mask(self, image):
-        # Blur the image
-        blur_radius = 5
-        blurred = cv2.GaussianBlur(image, (blur_radius, blur_radius), 0)
-        # Convert to HSV color space
-        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([2, 50, 50]), np.array([15, 255, 255]))
-        return mask
-
     def get_simple_diff_mask(self, image):
+        # type: (object) -> object
         mask = None
-        if len(self.last_frames)<self.discarded_frames:
+        if len(self.last_frames) < self.discarded_frames:
             self.last_frames.append(image)
             mean_image = np.zeros(image.shape, dtype=np.float32)
             for old_image in self.last_frames:
@@ -803,44 +849,7 @@ class HandDetector():
             # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
             _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
-    
-    def follow(self, frame, mask, bounding_rect):
-        upscaled_bounding_rect = bounding_rect#self.upscale_bounding_rec(bounding_rect,frame.shape,20)
-        x, y, w, h = upscaled_bounding_rect
-        track_window = upscaled_bounding_rect
-        # set up the ROI for tracking
-        roi = frame[y:y + h, x:x + w ]
-        hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
-        roi_mask = mask[y:y + h,x:x + w]
-        cv2.imshow("roi_follow_mask", roi_mask)
-        roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
-        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-        # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-        term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
-        # apply meanshift to get the new location
-        ret, track_window = cv2.meanShift(dst, track_window, term_crit)
-        return ret, track_window
-        # return ret, (max(newx-30,0), max(newy-30,0), min(neww+30,frame.shape[1]), min(newh+30,frame.shape[0]))
 
-    def upscale_bounding_rec(self, bounding_rect, frame_shape, upscaled_pixels):
-        x,y,w,h = bounding_rect
-        new_x = max(x - int(upscaled_pixels/2), 0)
-        new_y = max(y - int(upscaled_pixels/2), 0)
-        if x+w+int(upscaled_pixels/2)<frame_shape[1]:
-            new_w = w+int(upscaled_pixels/2)
-        else:
-            exceded_pixels = x+w+int(upscaled_pixels/2)-frame_shape[1]
-            new_w = w+exceded_pixels
-        if y+h+int(upscaled_pixels/2)<frame_shape[0]:
-            new_h = h+int(upscaled_pixels/2)
-        else:
-            exceded_pixels = y+h+int(upscaled_pixels/2)-frame_shape[0]
-            new_h = h+exceded_pixels
-        upscaled_bounding_rect = (new_x, new_y, new_w, new_h)
-        return upscaled_bounding_rect
     #
     #     # scale_up = 20
     #     # current_hand_roi_mask[max(y - scale_up, 0):min(y + h + scale_up, frame.shape[0]),
@@ -860,6 +869,7 @@ class HandDetector():
         # cv2.imshow("blurred", blur)
         mask = fgbg.apply(blurred)
         return mask
+
 
 def main():
     # hand_detector = HandDetector()
