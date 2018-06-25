@@ -4,6 +4,7 @@ import copy
 import math
 import time
 from collections import deque
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -53,6 +54,13 @@ def find_distance(point_a, point_b):
 # cv2.createTrackbar('s', 'HSV_TrackBar', 0, 255, nothing)
 # cv2.createTrackbar('v', 'HSV_TrackBar', 0, 255, nothing)
 
+MAX_UNDETECTED_FRAMES = 30*10 # 30 FPS * 10 seconds
+MAX_UNDETECTED_SECONDS = 10
+DETECTION_TRUTH_FACTOR = 2. # points of life to recover if detected in one iteration
+TRACKING_TRUTH_FACTOR = .1   # points of life to recover if tracked in one iteration
+UNDETECTION_TRUTH_FACTOR = 3. # points of life to recover if detected in one iteration
+UNTRACKING_TRUTH_FACTOR = .1   # points of life to recover if tracked in one iteration
+MAX_TRUTH_VALUE = 100.
 
 class Hand:
     def __init__(self):
@@ -72,6 +80,37 @@ class Hand:
         self.detected = True
         self.position_history = []
         self.color = get_random_color()[0]
+        self.truth_value = 100
+
+    def update_truth_value_by_time(self):
+        if self.last_time_update is not None:
+            elapsed_time = datetime.now()-self.last_time_update
+            elapsed_miliseconds = int(elapsed_time.total_seconds() * 1000)
+            truth_subtraction = elapsed_miliseconds*MAX_TRUTH_VALUE /MAX_UNDETECTED_SECONDS*1000
+            detection_adition = DETECTION_TRUTH_FACTOR if self.detected is True else 0
+            tracking_adition = TRACKING_TRUTH_FACTOR if self.tracked is True else 0
+            self.truth_value = self.truth_value - truth_subtraction + detection_adition + tracking_adition
+        self.last_time_update = datetime.now()
+
+
+    def update_truth_value_by_frame(self):
+        one_frame_truth_subtraction = MAX_TRUTH_VALUE / MAX_UNDETECTED_FRAMES
+        detection_adition = 0
+        if self.detected:
+            detection_adition = DETECTION_TRUTH_FACTOR*one_frame_truth_subtraction
+        else:
+            detection_adition = -1 * UNDETECTION_TRUTH_FACTOR * one_frame_truth_subtraction
+        tracking_adition = 0
+        if self.tracked:
+            tracking_adition = TRACKING_TRUTH_FACTOR*one_frame_truth_subtraction
+        else:
+            tracking_adition = -1 *UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
+        new_truth_value = self.truth_value - one_frame_truth_subtraction + detection_adition + tracking_adition
+        if new_truth_value <= 100:
+            self.truth_value = new_truth_value
+        else:
+            self.truth_value = 100
+
 
     def copy_main_attributes(self):
         updated_hand = Hand()
@@ -241,8 +280,8 @@ class HandDetector:
                             hand.bounding_rect = hand.tracking_window
                         else:
                             print "_____________No updated information"
-                    # TODO: How to decided when to remove
-                    if (hand.tracking_fails > 20 and hand.detected is False) or (hand.detection_fail > 20):
+                    hand.update_truth_value_by_frame()
+                    if hand.truth_value<=0:
                         print "removing hand"
                         self.hands.remove(hand)
 
@@ -373,7 +412,7 @@ class HandDetector:
             cv2.putText(frame, 'Center', tuple(hand.center_of_mass), self.font, 0.5, (255, 255, 255), 1)
 
         hand_string = "hand " + str(hand.id) + ": detected =" + str(hand.detected) + " tracked =" + str(
-            hand.tracked) + " at " + str(hand.center_of_mass)
+            hand.tracked) + " at " + str(hand.center_of_mass) +" truth: "+str(hand.truth_value)+"%"
         cv2.putText(frame, hand_string, (10, 30 + 15 * int(hand.id)), self.font, 0.5, (255, 255, 255), 1)
         return frame
 
@@ -769,8 +808,8 @@ class HandDetector:
 
 
 def main():
-    # hand_detector = HandDetector()
-    hand_detector = HandDetector('/home/robolab/PycharmProjects/TVGames/libs/Hand_Detection/hand_on_screen2.mp4')
+    hand_detector = HandDetector()
+    # hand_detector = HandDetector('/home/robolab/PycharmProjects/TVGames/libs/Hand_Detection/hand_on_screen2.mp4')
     hand_detector.compute()
     hand_detector.exit()
 
