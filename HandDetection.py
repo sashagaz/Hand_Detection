@@ -82,6 +82,17 @@ class Hand:
         self.color = get_random_color()[0]
         self.truth_value = 100
 
+    def update_attributes_from_detected(self, other_hand):
+        self.fingertips = other_hand.fingertips
+        self.intertips = other_hand.intertips
+        self.center_of_mass = other_hand.center_of_mass
+        self.finger_distances = other_hand.finger_distances
+        self.average_defect_distance = other_hand.average_defect_distance
+        self.contour = other_hand.contour
+        self.bounding_rect = other_hand.bounding_rect
+        self.detected = True
+
+
     def update_truth_value_by_time(self):
         if self.last_time_update is not None:
             elapsed_time = datetime.now()-self.last_time_update
@@ -219,11 +230,7 @@ class HandDetector:
                         existing_hand.bounding_rect)
                     if intersection_value > 0.1:
                         hand_exists = True
-                        detected_hand.detected = True
-                        detected_hand.id = existing_hand.id
-                        detected_hand.position_history = existing_hand.position_history
-                        detected_hand.color = existing_hand.color
-                        self.hands[existing_hand_index] = detected_hand
+                        existing_hand.update_attributes_from_detected(detected_hand)
                         break
                 if not hand_exists:
                     detected_hand.id = str(self.next_hand_id)
@@ -808,8 +815,8 @@ class HandDetector:
 
 
 def main():
-    hand_detector = HandDetector()
-    # hand_detector = HandDetector('/home/robolab/PycharmProjects/TVGames/libs/Hand_Detection/hand_on_screen2.mp4')
+    # hand_detector = HandDetector()
+    hand_detector = HandDetector('/home/robolab/PycharmProjects/TVGames/libs/Hand_Detection/hand_on_screen2.mp4')
     hand_detector.compute()
     hand_detector.exit()
 
