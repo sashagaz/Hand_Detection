@@ -867,7 +867,7 @@ class HandDetector:
                             1)
             for defect in hand.intertips:
                 cv2.circle(frame, tuple(defect), 8, [211, 84, 0], -1)
-
+        self.draw_contour_features(frame, hand.contour)
         x, y, w, h = hand.bounding_rect
         # cv2.putText(frame, (str(w)), (x + w, y), self.font, 0.3, [255, 255, 255], 1)
         # cv2.putText(frame, (str(h)), (x + w, y + h), self.font, 0.3, [255, 255, 255], 1)
@@ -897,6 +897,45 @@ class HandDetector:
         hand.frame_count)
         cv2.putText(frame, hand_string, (10, 30 + 15 * int(hand.id)), self.font, 0.5, (255, 255, 255), 1)
         return frame
+
+    def draw_contour_features(self, to_show, hand_contour):
+        perimeter = cv2.arcLength(hand_contour, True)
+        print perimeter
+        hull = cv2.convexHull(hand_contour, returnPoints=False)
+        new_contour = []
+        # for index in hull:
+        #     cv2.circle(to_show,tuple(hand_contour[index][0][0]),5,(255,255,255),2)
+        defects = cv2.convexityDefects(hand_contour, hull)
+        for defect_index in range(defects.shape[0]):
+            s, e, f, d = defects[defect_index, 0]
+            # cv2.circle(to_show,start,5,(0,99,255),2)
+            # cv2.circle(to_show, end, 5, (0, 99, 255), 2)
+            # cv2.circle(to_show, far, 5, (0, 99, 255), 2)
+            new_contour.append(hand_contour[s])
+            new_contour.append(hand_contour[f])
+            new_contour.append(hand_contour[e])
+
+        x, y, w, h = cv2.boundingRect(hand_contour)
+        cv2.rectangle(to_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        rect = cv2.minAreaRect(hand_contour)
+        box = cv2.boxPoints(rect)
+        box = np.int0(box)
+        cv2.drawContours(to_show, [box], 0, (0, 0, 255), 2)
+
+        (x, y), radius = cv2.minEnclosingCircle(hand_contour)
+        center = (int(x), int(y))
+        radius = int(radius)
+        cv2.circle(to_show, center, radius, (255, 0, 0), 2)
+        ellipse = cv2.fitEllipse(hand_contour)
+        cv2.ellipse(to_show, ellipse, (100, 48, 170), 2)
+
+        rows, cols = to_show.shape[:2]
+        [vx, vy, x, y] = cv2.fitLine(hand_contour, cv2.DIST_L2, 0, 0.01, 0.01)
+        lefty = int((-x * vy / vx) + y)
+        righty = int(((cols - x) * vy / vx) + y)
+        cv2.line(to_show, (cols - 1, righty), (0, lefty), (0, 255, 0), 2)
+
+        cv2.imshow("Hand with contour", to_show)
 
     def exit(self):
         self.capture.release()
@@ -1238,9 +1277,14 @@ class HandDetector:
 
                 if existing_hand.detected is False:
                     extended_roi = extended_roi if extended_roi is not None else existing_hand.bounding_rect
-
                     fist_bounding_rect, existing_hand.contour = self.detect_fist(frame, extended_roi)
                     existing_hand.bounding_rect = upscale_bounding_rect(fist_bounding_rect, frame.shape, 50)
+
+                    updated_hand = self.update_hand_attributes(frame, existing_hand, strict=False)
+                    if updated_hand is not None:
+                        existing_hand.update_attributes_from_detected(updated_hand)
+                        existing_hand.position_history = updated_hand.position_history
+                        existing_hand.detected = False
                     # if existing_hand.tracked:
                     #     existing_hand.bounding_rect = existing_hand.tracking_window
                     #     updated_hand = self.update_hand_attributes(frame, existing_hand, strict=False)
