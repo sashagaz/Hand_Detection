@@ -264,7 +264,7 @@ class HandDetector:
         # TODO: ENV_DEPENDENCE: depending on the environment and camera it would be more or less frames to discard
         self.discarded_frames = 10
         self.last_frames = deque(maxlen=self.discarded_frames)
-        self.debug = True
+        self.debug = False
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
@@ -867,7 +867,7 @@ class HandDetector:
                             1)
             for defect in hand.intertips:
                 cv2.circle(frame, tuple(defect), 8, [211, 84, 0], -1)
-        self.draw_contour_features(frame, hand.contour)
+        # self.draw_contour_features(frame, hand.contour)
         x, y, w, h = hand.bounding_rect
         # cv2.putText(frame, (str(w)), (x + w, y), self.font, 0.3, [255, 255, 255], 1)
         # cv2.putText(frame, (str(h)), (x + w, y + h), self.font, 0.3, [255, 255, 255], 1)
@@ -1277,15 +1277,21 @@ class HandDetector:
 
                 if existing_hand.detected is False:
                     extended_roi = extended_roi if extended_roi is not None else existing_hand.bounding_rect
-                    fist_bounding_rect, existing_hand.contour = self.detect_fist(frame, extended_roi)
-                    existing_hand.bounding_rect = upscale_bounding_rect(fist_bounding_rect, frame.shape, 50)
-
-                    updated_hand = self.update_hand_attributes(frame, existing_hand, strict=False)
-                    if updated_hand is not None:
-                        existing_hand.update_attributes_from_detected(updated_hand)
-                        existing_hand.position_history = updated_hand.position_history
-                        existing_hand.detected = False
+                    fist_bounding_rect, new_contour = self.detect_fist(frame, extended_roi)
+                    if fist_bounding_rect is not None and new_contour is not None:
+                        existing_hand.contour = new_contour
+                        existing_hand.bounding_rect = upscale_bounding_rect(fist_bounding_rect, frame.shape, 50)
+                        updated_hand = self.update_hand_attributes(frame, existing_hand, strict=False)
+                        if updated_hand is not None:
+                            existing_hand.update_attributes_from_detected(updated_hand)
+                            existing_hand.position_history = updated_hand.position_history
+                            existing_hand.detected = False
+                            existing_hand.tracked=True
+                        else:
+                            existing_hand.tracked = False
                     # if existing_hand.tracked:
+                    else:
+                        existing_hand.tracked = False
                     #     existing_hand.bounding_rect = existing_hand.tracking_window
                     #     updated_hand = self.update_hand_attributes(frame, existing_hand, strict=False)
                     #     if updated_hand is not None:
@@ -1317,54 +1323,56 @@ class HandDetector:
         if hand_contour is not None:
             cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
             cv2.imshow("detect_fist (Hand with contour)", to_show)
-        hull = cv2.convexHull(hand_contour, returnPoints=False)
-        new_contour = []
-        # for index in hull:
-        #     cv2.circle(to_show,tuple(hand_contour[index][0][0]),5,(255,255,255),2)
-        defects = cv2.convexityDefects(hand_contour, hull)
-        for defect_index in range(defects.shape[0]):
-            s, e, f, d = defects[defect_index, 0]
-            start = tuple(hand_contour[s][0])
-            end = tuple(hand_contour[e][0])
-            far = tuple(hand_contour[f][0])
-            # cv2.circle(to_show,start,5,(0,99,255),2)
-            # cv2.circle(to_show, end, 5, (0, 99, 255), 2)
-            # cv2.circle(to_show, far, 5, (0, 99, 255), 2)
-            new_contour.append(hand_contour[s])
-            new_contour.append(hand_contour[f])
-            new_contour.append(hand_contour[e])
+            hull = cv2.convexHull(hand_contour, returnPoints=False)
+            new_contour = []
+            # for index in hull:
+            #     cv2.circle(to_show,tuple(hand_contour[index][0][0]),5,(255,255,255),2)
+            defects = cv2.convexityDefects(hand_contour, hull)
+            for defect_index in range(defects.shape[0]):
+                s, e, f, d = defects[defect_index, 0]
+                start = tuple(hand_contour[s][0])
+                end = tuple(hand_contour[e][0])
+                far = tuple(hand_contour[f][0])
+                # cv2.circle(to_show,start,5,(0,99,255),2)
+                # cv2.circle(to_show, end, 5, (0, 99, 255), 2)
+                # cv2.circle(to_show, far, 5, (0, 99, 255), 2)
+                new_contour.append(hand_contour[s])
+                new_contour.append(hand_contour[f])
+                new_contour.append(hand_contour[e])
 
-        # define criteria and apply kmeans()
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-        new_contour_2d_points = np.float32(np.array(new_contour).reshape(len(new_contour), 2))
-        ret, label, center = cv2.kmeans(new_contour_2d_points, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+            # define criteria and apply kmeans()
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+            new_contour_2d_points = np.float32(np.array(new_contour).reshape(len(new_contour), 2))
+            ret, label, center = cv2.kmeans(new_contour_2d_points, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
-        # Now separate the data, Note the ravel()
-        max_group_len = 0
-        max_group = None
+            # Now separate the data, Note the ravel()
+            max_group_len = 0
+            max_group = None
 
-        for label_number in range(2):
+            for label_number in range(2):
 
-            group = new_contour_2d_points[label.ravel() == label_number]
-            rand_color = get_random_color()
-            for point in group:
-                cv2.circle(to_show, tuple(point), 5, rand_color[0], 2)
-            if len(group) > max_group_len:
-                max_group_len = len(group)
-                max_group = group
+                group = new_contour_2d_points[label.ravel() == label_number]
+                rand_color = get_random_color()
+                for point in group:
+                    cv2.circle(to_show, tuple(point), 5, rand_color[0], 2)
+                if len(group) > max_group_len:
+                    max_group_len = len(group)
+                    max_group = group
 
-        (x, y), radius = cv2.minEnclosingCircle(max_group)
-        center = (int(x), int(y))
-        radius = int(radius) + 20
+            (x, y), radius = cv2.minEnclosingCircle(max_group)
+            center = (int(x), int(y))
+            radius = int(radius) + 20
 
-        cv2.circle(to_show, center, radius, (122, 122, 0), 1)
+            cv2.circle(to_show, center, radius, (122, 122, 0), 1)
 
-        for point in max_group:
-            cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
+            for point in max_group:
+                cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
 
-        cv2.imshow("detect_fist (Fist_ring)", to_show)
-        new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
-        return cv2.boundingRect(new_contour), new_contour
+            cv2.imshow("detect_fist (Fist_ring)", to_show)
+            new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
+            return cv2.boundingRect(new_contour), new_contour
+        else:
+            return None, None
 
     def update_detection2(self, frame):
         for existing_hand in self.hands:
@@ -1442,6 +1450,7 @@ class HandDetector:
 
 def main():
     hand_detector = HandDetector()
+    hand_detector.debug = True
     # hand_detector = HandDetector('./resources/testing_hand_video2.mp4')
     hand_detector.compute2()
     hand_detector.exit()
