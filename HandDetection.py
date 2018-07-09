@@ -310,7 +310,6 @@ class HandDetector:
                         self.font, 1, [0, 0, 0], 2)
         masked_frame = cv2.rectangle(masked_frame, (template_x, template_y),
                                      (template_x + template_w, template_y + template_h), [0, 0, 0])
-        # cv2.imshow('masked_frame', masked_frame)
         return masked_frame
 
     def add_hand(self, frame):
