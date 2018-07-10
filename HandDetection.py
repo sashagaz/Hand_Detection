@@ -1323,7 +1323,8 @@ class HandDetector:
 
         if hand_contour is not None:
             cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
-            cv2.imshow("detect_fist (Hand with contour)", to_show)
+            if self.debug:
+                cv2.imshow("detect_fist (Hand with contour)", to_show)
             hull = cv2.convexHull(hand_contour, returnPoints=False)
             new_contour = []
             # for index in hull:
@@ -1368,8 +1369,8 @@ class HandDetector:
 
             for point in max_group:
                 cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
-
-            cv2.imshow("detect_fist (Fist_ring)", to_show)
+            if self.debug:
+                cv2.imshow("detect_fist (Fist_ring)", to_show)
             new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
             return cv2.boundingRect(new_contour), new_contour
         else:
