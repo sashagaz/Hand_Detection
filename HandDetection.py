@@ -269,11 +269,13 @@ class HandDetector:
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
-    def add_hand2(self, frame):
-        hand_template_roi = (frame.shape[1] / 2 - 100, frame.shape[0] / 2 - 100, 200, 200)
-        template_x, template_y, template_w, template_h = hand_template_roi
-        frame_contours, frame_mask = self.create_contours_and_mask(frame, hand_template_roi)
-        masked_frame = frame.copy()
+    def add_hand2(self, frame, roi = None):
+        if roi is None:
+            search_roi = (frame.shape[1] / 2 - 100, frame.shape[0] / 2 - 100, 200, 200)
+        else:
+            search_roi = roi
+        template_x, template_y, template_w, template_h = search_roi
+        frame_contours, frame_mask = self.create_contours_and_mask(frame, search_roi)
         masked_frame = np.zeros(frame.shape, dtype="uint8")
         masked_frame[::] = 255
         if len(frame_contours) > 0 and len(frame_mask) > 0:
