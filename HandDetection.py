@@ -265,6 +265,9 @@ class HandDetector:
         self.discarded_frames = 10
         self.last_frames = deque(maxlen=self.discarded_frames)
         self.debug = False
+        self.mask_mode = "rgbd"
+        # Only used with RGBD cameras to create the mask.
+        self.depth_mask = None
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
@@ -275,6 +278,7 @@ class HandDetector:
         else:
             search_roi = roi
         template_x, template_y, template_w, template_h = search_roi
+
         frame_contours, frame_mask = self.create_contours_and_mask(frame, search_roi)
         masked_frame = np.zeros(frame.shape, dtype="uint8")
         masked_frame[::] = 255
@@ -486,7 +490,21 @@ class HandDetector:
         _, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         return (contours, hands_mask)
 
-    def create_hands_mask(self, image, mode="diff"):
+    def set_mask_mode(self, mode):
+        self.mask_mode = mode
+
+    def set_depth_mask(self, depth_mask):
+        if self.debug:
+            cv2.imshow("depth_image", depth_mask)
+
+        self.depth_mask = depth_mask
+
+
+    def create_hands_mask(self, image, mode=None):
+
+        if mode is None:
+            mode = self.mask_mode
+        # print "create_hands_mask %s" % mode
         mask = None
         if mode == "color":
             mask = get_color_mask(image)
@@ -508,6 +526,10 @@ class HandDetector:
         elif mode == "movement_buffer":
             # Absolutly unusefull
             mask = self.get_movement_buffer_mask(image)
+        elif mode == "depth":
+            print "Mode depth"
+            assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
+            _, mask = cv2.threshold(self.depth_mask, 40, 255, cv2.THRESH_BINARY)
         return mask
 
     def compute(self):
