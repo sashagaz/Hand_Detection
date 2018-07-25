@@ -157,7 +157,7 @@ class Hand:
         return updated_hand
 
 
-def clean_mask_noise(mask):
+def clean_mask_noise(mask, blur=5):
     # Kernel matrices for morphological transformation
     kernel_square = np.ones((11, 11), np.uint8)
     kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -173,7 +173,7 @@ def clean_mask_noise(mask):
     # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
     # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-    median = cv2.medianBlur(dilation2, 5)
+    median = cv2.medianBlur(dilation2, blur)
     return median
 
 
@@ -496,7 +496,6 @@ class HandDetector:
     def set_depth_mask(self, depth_mask):
         if self.debug:
             cv2.imshow("depth_image", depth_mask)
-
         self.depth_mask = depth_mask
 
 
@@ -529,7 +528,21 @@ class HandDetector:
         elif mode == "depth":
             print "Mode depth"
             assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
-            _, mask = cv2.threshold(self.depth_mask, 40, 255, cv2.THRESH_BINARY)
+            #TODO: ENV_DEPENDENCE: the second value depends on the distance from the camera to the maximum depth where it can be found in a scale of 0-255
+            mask = cv2.inRange(self.depth_mask,1,109)
+            # Kernel matrices for morphological transformation
+            kernel_square = np.ones((11, 11), np.uint8)
+            kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            dilation = cv2.dilate(mask, kernel_ellipse, iterations=1)
+            erosion = cv2.erode(dilation, kernel_square, iterations=1)
+            # dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
+            # filtered = cv2.medianBlur(dilation2, 5)
+            # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
+            # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+            # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+            mask = cv2.medianBlur(erosion, 3)
+            # _, mask = cv2.threshold(mask, 100, 255, cv2.THRESH_BINARY)
         return mask
 
     def compute(self):
@@ -923,7 +936,7 @@ class HandDetector:
 
     def draw_contour_features(self, to_show, hand_contour):
         perimeter = cv2.arcLength(hand_contour, True)
-        print perimeter
+        # print perimeter
         hull = cv2.convexHull(hand_contour, returnPoints=False)
         new_contour = []
         # for index in hull:
