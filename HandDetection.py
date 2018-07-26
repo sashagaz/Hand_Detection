@@ -268,6 +268,7 @@ class HandDetector:
         self.mask_mode = "rgbd"
         # Only used with RGBD cameras to create the mask.
         self.depth_mask = None
+        self.depth_threshold = 600
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
@@ -493,14 +494,15 @@ class HandDetector:
     def set_mask_mode(self, mode):
         self.mask_mode = mode
 
-    def set_depth_mask(self, depth_mask):
-        if self.debug:
-            cv2.imshow("depth_image", depth_mask)
+    def set_depth_mask(self, depth_mask, threshold=600):
         self.depth_mask = depth_mask
+        self.depth_threshold = threshold
+
+    def set_depth_threshold(self, threshold):
+        self.depth_threshold = threshold
 
 
     def create_hands_mask(self, image, mode=None):
-
         if mode is None:
             mode = self.mask_mode
         # print "create_hands_mask %s" % mode
@@ -529,7 +531,8 @@ class HandDetector:
             print "Mode depth"
             assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
             #TODO: ENV_DEPENDENCE: the second value depends on the distance from the camera to the maximum depth where it can be found in a scale of 0-255
-            mask = cv2.inRange(self.depth_mask,1,109)
+            mask = cv2.inRange(self.depth_mask,1,float(self.depth_threshold))
+            mask = self.depth_mask_to_image(mask)
             # Kernel matrices for morphological transformation
             kernel_square = np.ones((11, 11), np.uint8)
             kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -544,6 +547,14 @@ class HandDetector:
             mask = cv2.medianBlur(erosion, 3)
             # _, mask = cv2.threshold(mask, 100, 255, cv2.THRESH_BINARY)
         return mask
+
+    def depth_mask_to_image(self, depth):
+        depth_min = np.min(depth)
+        depth_max = np.max(depth)
+        depth = np.interp(depth, [depth_min, depth_max], [0.0, 255.0], right=255, left=0)
+        depth = np.array(depth, dtype=np.uint8)
+        depth = depth.reshape(480, 640, 1)
+        return depth
 
     def compute(self):
         while self.capture.isOpened():
