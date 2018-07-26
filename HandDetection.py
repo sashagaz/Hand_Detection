@@ -494,9 +494,8 @@ class HandDetector:
     def set_mask_mode(self, mode):
         self.mask_mode = mode
 
-    def set_depth_mask(self, depth_mask, threshold=600):
+    def set_depth_mask(self, depth_mask):
         self.depth_mask = depth_mask
-        self.depth_threshold = threshold
 
     def set_depth_threshold(self, threshold):
         self.depth_threshold = threshold
@@ -531,8 +530,10 @@ class HandDetector:
             print "Mode depth"
             assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
             #TODO: ENV_DEPENDENCE: the second value depends on the distance from the camera to the maximum depth where it can be found in a scale of 0-255
-            mask = cv2.inRange(self.depth_mask,1,float(self.depth_threshold))
+            mask = self.depth_mask
+            mask[mask>self.depth_threshold]= 0
             mask = self.depth_mask_to_image(mask)
+
             # Kernel matrices for morphological transformation
             kernel_square = np.ones((11, 11), np.uint8)
             kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -551,7 +552,9 @@ class HandDetector:
     def depth_mask_to_image(self, depth):
         depth_min = np.min(depth)
         depth_max = np.max(depth)
-        depth = np.interp(depth, [depth_min, depth_max], [0.0, 255.0], right=255, left=0)
+        if depth_max!= depth_min and depth_max>0:
+            depth = np.interp(depth, [depth_min, depth_max], [0.0, 255.0], right=255, left=0)
+
         depth = np.array(depth, dtype=np.uint8)
         depth = depth.reshape(480, 640, 1)
         return depth
