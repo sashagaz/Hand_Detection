@@ -118,13 +118,14 @@ class Hand:
             self.tracking_fails += 1
             tracking_adition = -1 * UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
         new_truth_value = self.truth_value - one_frame_truth_subtraction + detection_adition + tracking_adition
-        if new_truth_value <= 100:
+        if new_truth_value <= MAX_TRUTH_VALUE:
             self.truth_value = new_truth_value
         else:
-            self.truth_value = 100
+            self.truth_value = MAX_TRUTH_VALUE
         self.frame_count += 1
 
     def update_truth_value_by_frame2(self):
+        substraction = 0
         one_frame_truth_subtraction = MAX_TRUTH_VALUE / MAX_UNDETECTED_FRAMES
         if not self.detected:
             self.detection_fails += 1
@@ -133,7 +134,11 @@ class Hand:
         if not self.detected and not self.tracked:
             substraction = -1 * UNDETECTION_TRUTH_FACTOR * UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
         else:
-            substraction = 0
+            if self.tracked:
+                substraction = substraction + UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
+            if self.detected:
+                substraction = substraction + UNDETECTION_TRUTH_FACTOR * one_frame_truth_subtraction
+
         new_truth_value = self.truth_value + substraction
         if new_truth_value <= 100:
             self.truth_value = new_truth_value
@@ -355,7 +360,7 @@ class HandDetector:
                     # cv2.imshow("realtime hand mask", realtime_handmask)
                     diff = cv2.absdiff(hand_template_roi_image.astype(np.uint8), frame_mask_roi_image.astype(np.uint8))
                     if self.debug:
-                        cv2.imshow("diff", diff)
+                        cv2.imshow("DEBUG: HandDetection_lib: diff", diff)
                     result = cv2.matchShapes(frame_mask_roi_image_contour, hand_template_contour, 1, 0)
                     print result
                     if frame_mask_roi_image_contour is not None:
@@ -467,7 +472,7 @@ class HandDetector:
         if hands_mask is None:
             return ([], [])
         if self.debug:
-            cv2.imshow("create_contours_and_mask (Frame Mask)", hands_mask)
+            cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (Frame Mask)", hands_mask)
 
         if roi_mask is not None:
             current_roi_mask = np.zeros(hands_mask.shape, dtype='uint8')
@@ -483,7 +488,7 @@ class HandDetector:
             # cv2.putText(to_show, (str(x)+", "+str(y)), (x-10, y-10), self.font, 0.3, [255, 255, 255], 1)
             cv2.rectangle(to_show, (x, y), (x + w, y + h), [255, 255, 255])
             if self.debug:
-                cv2.imshow("create_contours_and_mask (ROIed Mask)", to_show)
+                cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (ROIed Mask)", to_show)
 
         ret, thresh = cv2.threshold(hands_mask, 127, 255, 0)
 
@@ -521,8 +526,8 @@ class HandDetector:
             if diff_mask is not None and color_mask is not None:
                 mask = cv2.bitwise_and(diff_mask, color_mask)
                 if self.debug:
-                    cv2.imshow("diff_mask", diff_mask)
-                    cv2.imshow("color_mask", color_mask)
+                    cv2.imshow("DEBUG: HandDetection_lib: diff_mask", diff_mask)
+                    cv2.imshow("DEBUG: HandDetection_lib: color_mask", color_mask)
         elif mode == "movement_buffer":
             # Absolutly unusefull
             mask = self.get_movement_buffer_mask(image)
@@ -580,7 +585,7 @@ class HandDetector:
                             hand.bounding_rect = hand.tracking_window
                         else:
                             print "_____________No updated information"
-                    hand.update_truth_value_by_frame()
+                    hand.update_truth_value_by_frame2()
                     if hand.truth_value <= 0:
                         print "removing hand"
                         self.hands.remove(hand)
@@ -592,7 +597,7 @@ class HandDetector:
 
                 ##### Show final image ########
                 if self.debug:
-                    cv2.imshow('Detection', overlayed_frame)
+                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
                 ###############################
                 # Print execution time
                 # print time.time()-start_time
@@ -623,7 +628,7 @@ class HandDetector:
 
                 ##### Show final image ########
                 if self.debug:
-                    cv2.imshow('Detection', overlayed_frame)
+                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
                 ###############################
                 # Print execution time
                 # print time.time()-start_time
@@ -1000,7 +1005,7 @@ class HandDetector:
         # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
         roi_mask = mask[y:y + h, x:x + w]
         if self.debug:
-            cv2.imshow("follow (ROI extracted mask)", roi_mask)
+            cv2.imshow("DEBUG: HandDetection_lib: follow (ROI extracted mask)", roi_mask)
         roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
         cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
         # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
@@ -1045,7 +1050,7 @@ class HandDetector:
         # print "diff"
         gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
         if self.debug:
-            cv2.imshow("diff", gray_diff)
+            cv2.imshow("DEBUG: HandDetection_lib: diff", gray_diff)
         # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
         _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
@@ -1066,7 +1071,7 @@ class HandDetector:
             # print "diff"
             gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
             if self.debug:
-                cv2.imshow("diff", gray_diff)
+                cv2.imshow("DEBUG: HandDetection_lib: diff", gray_diff)
             # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
             _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
@@ -1158,7 +1163,7 @@ class HandDetector:
             cv2.drawContours(to_show, contours, -1, (122, 122, 0), 1)
             if roi is not None:
                 cv2.rectangle(to_show, (roi[0], roi[1]), (roi[0] + roi[2], roi[1] + roi[3]), (122, 122, 255))
-            cv2.imshow("detect_hands_in_frame (Detected Contours)", to_show)
+            cv2.imshow("DEBUG: HandDetection_lib: detect_hands_in_frame (Detected Contours)", to_show)
             k = cv2.waitKey(1)
 
         if len(contours) > 0:
@@ -1373,7 +1378,7 @@ class HandDetector:
         if hand_contour is not None:
             cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
             if self.debug:
-                cv2.imshow("detect_fist (Hand with contour)", to_show)
+                cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Hand with contour)", to_show)
             hull = cv2.convexHull(hand_contour, returnPoints=False)
             new_contour = []
             # for index in hull:
@@ -1419,7 +1424,7 @@ class HandDetector:
             for point in max_group:
                 cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
             if self.debug:
-                cv2.imshow("detect_fist (Fist_ring)", to_show)
+                cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Fist_ring)", to_show)
             new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
             return cv2.boundingRect(new_contour), new_contour
         else:
@@ -1471,7 +1476,7 @@ class HandDetector:
                 if self.debug:
                     to_show = frame.copy()
                     cv2.drawContours(to_show, contours, -1, 255)
-                    cv2.imshow("update_hand_charasteristics (New Contour)", to_show)
+                    cv2.imshow("DEBUG: HandDetection_lib: update_hand_charasteristics (New Contour)", to_show)
                 updated_hand = self.update_hand_with_contour(frame, hand_contour, updated_hand)
             else:
                 return None
