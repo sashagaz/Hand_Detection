@@ -118,13 +118,14 @@ class Hand:
             self.tracking_fails += 1
             tracking_adition = -1 * UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
         new_truth_value = self.truth_value - one_frame_truth_subtraction + detection_adition + tracking_adition
-        if new_truth_value <= 100:
+        if new_truth_value <= MAX_TRUTH_VALUE:
             self.truth_value = new_truth_value
         else:
-            self.truth_value = 100
+            self.truth_value = MAX_TRUTH_VALUE
         self.frame_count += 1
 
     def update_truth_value_by_frame2(self):
+        substraction = 0
         one_frame_truth_subtraction = MAX_TRUTH_VALUE / MAX_UNDETECTED_FRAMES
         if not self.detected:
             self.detection_fails += 1
@@ -133,7 +134,11 @@ class Hand:
         if not self.detected and not self.tracked:
             substraction = -1 * UNDETECTION_TRUTH_FACTOR * UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
         else:
-            substraction = 0
+            if self.tracked:
+                substraction = substraction + UNTRACKING_TRUTH_FACTOR * one_frame_truth_subtraction
+            if self.detected:
+                substraction = substraction + UNDETECTION_TRUTH_FACTOR * one_frame_truth_subtraction
+
         new_truth_value = self.truth_value + substraction
         if new_truth_value <= 100:
             self.truth_value = new_truth_value
@@ -157,7 +162,7 @@ class Hand:
         return updated_hand
 
 
-def clean_mask_noise(mask):
+def clean_mask_noise(mask, blur=5):
     # Kernel matrices for morphological transformation
     kernel_square = np.ones((11, 11), np.uint8)
     kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -173,7 +178,7 @@ def clean_mask_noise(mask):
     # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
     # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-    median = cv2.medianBlur(dilation2, 5)
+    median = cv2.medianBlur(dilation2, blur)
     return median
 
 
@@ -265,15 +270,22 @@ class HandDetector:
         self.discarded_frames = 10
         self.last_frames = deque(maxlen=self.discarded_frames)
         self.debug = False
+        self.mask_mode = "rgbd"
+        # Only used with RGBD cameras to create the mask.
+        self.depth_mask = None
+        self.depth_threshold = 600
         # Decrease frame size
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1000)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
-    def add_hand2(self, frame):
-        hand_template_roi = (frame.shape[1] / 2 - 100, frame.shape[0] / 2 - 100, 200, 200)
-        template_x, template_y, template_w, template_h = hand_template_roi
-        frame_contours, frame_mask = self.create_contours_and_mask(frame, hand_template_roi)
-        masked_frame = frame.copy()
+    def add_hand2(self, frame, roi = None):
+        if roi is None:
+            search_roi = (frame.shape[1] / 2 - 100, frame.shape[0] / 2 - 100, 200, 200)
+        else:
+            search_roi = roi
+        template_x, template_y, template_w, template_h = search_roi
+
+        frame_contours, frame_mask = self.create_contours_and_mask(frame, search_roi)
         masked_frame = np.zeros(frame.shape, dtype="uint8")
         masked_frame[::] = 255
         if len(frame_contours) > 0 and len(frame_mask) > 0:
@@ -310,7 +322,6 @@ class HandDetector:
                         self.font, 1, [0, 0, 0], 2)
         masked_frame = cv2.rectangle(masked_frame, (template_x, template_y),
                                      (template_x + template_w, template_y + template_h), [0, 0, 0])
-        # cv2.imshow('masked_frame', masked_frame)
         return masked_frame
 
     def add_hand(self, frame):
@@ -349,7 +360,7 @@ class HandDetector:
                     # cv2.imshow("realtime hand mask", realtime_handmask)
                     diff = cv2.absdiff(hand_template_roi_image.astype(np.uint8), frame_mask_roi_image.astype(np.uint8))
                     if self.debug:
-                        cv2.imshow("diff", diff)
+                        cv2.imshow("DEBUG: HandDetection_lib: diff", diff)
                     result = cv2.matchShapes(frame_mask_roi_image_contour, hand_template_contour, 1, 0)
                     print result
                     if frame_mask_roi_image_contour is not None:
@@ -461,7 +472,7 @@ class HandDetector:
         if hands_mask is None:
             return ([], [])
         if self.debug:
-            cv2.imshow("create_contours_and_mask (Frame Mask)", hands_mask)
+            cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (Frame Mask)", hands_mask)
 
         if roi_mask is not None:
             current_roi_mask = np.zeros(hands_mask.shape, dtype='uint8')
@@ -477,7 +488,7 @@ class HandDetector:
             # cv2.putText(to_show, (str(x)+", "+str(y)), (x-10, y-10), self.font, 0.3, [255, 255, 255], 1)
             cv2.rectangle(to_show, (x, y), (x + w, y + h), [255, 255, 255])
             if self.debug:
-                cv2.imshow("create_contours_and_mask (ROIed Mask)", to_show)
+                cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (ROIed Mask)", to_show)
 
         ret, thresh = cv2.threshold(hands_mask, 127, 255, 0)
 
@@ -485,7 +496,20 @@ class HandDetector:
         _, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         return (contours, hands_mask)
 
-    def create_hands_mask(self, image, mode="diff"):
+    def set_mask_mode(self, mode):
+        self.mask_mode = mode
+
+    def set_depth_mask(self, depth_mask):
+        self.depth_mask = depth_mask
+
+    def set_depth_threshold(self, threshold):
+        self.depth_threshold = threshold
+
+
+    def create_hands_mask(self, image, mode=None):
+        if mode is None:
+            mode = self.mask_mode
+        # print "create_hands_mask %s" % mode
         mask = None
         if mode == "color":
             mask = get_color_mask(image)
@@ -502,12 +526,43 @@ class HandDetector:
             if diff_mask is not None and color_mask is not None:
                 mask = cv2.bitwise_and(diff_mask, color_mask)
                 if self.debug:
-                    cv2.imshow("diff_mask", diff_mask)
-                    cv2.imshow("color_mask", color_mask)
+                    cv2.imshow("DEBUG: HandDetection_lib: diff_mask", diff_mask)
+                    cv2.imshow("DEBUG: HandDetection_lib: color_mask", color_mask)
         elif mode == "movement_buffer":
             # Absolutly unusefull
             mask = self.get_movement_buffer_mask(image)
+        elif mode == "depth":
+            print "Mode depth"
+            assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
+            #TODO: ENV_DEPENDENCE: the second value depends on the distance from the camera to the maximum depth where it can be found in a scale of 0-255
+            mask = self.depth_mask
+            mask[mask>self.depth_threshold]= 0
+            mask = self.depth_mask_to_image(mask)
+
+            # Kernel matrices for morphological transformation
+            kernel_square = np.ones((11, 11), np.uint8)
+            kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            dilation = cv2.dilate(mask, kernel_ellipse, iterations=1)
+            erosion = cv2.erode(dilation, kernel_square, iterations=1)
+            # dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
+            # filtered = cv2.medianBlur(dilation2, 5)
+            # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
+            # dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+            # kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            # dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
+            mask = cv2.medianBlur(erosion, 3)
+            # _, mask = cv2.threshold(mask, 100, 255, cv2.THRESH_BINARY)
         return mask
+
+    def depth_mask_to_image(self, depth):
+        depth_min = np.min(depth)
+        depth_max = np.max(depth)
+        if depth_max!= depth_min and depth_max>0:
+            depth = np.interp(depth, [depth_min, depth_max], [0.0, 255.0], right=255, left=0)
+
+        depth = np.array(depth, dtype=np.uint8)
+        depth = depth.reshape(480, 640, 1)
+        return depth
 
     def compute(self):
         while self.capture.isOpened():
@@ -530,7 +585,7 @@ class HandDetector:
                             hand.bounding_rect = hand.tracking_window
                         else:
                             print "_____________No updated information"
-                    hand.update_truth_value_by_frame()
+                    hand.update_truth_value_by_frame2()
                     if hand.truth_value <= 0:
                         print "removing hand"
                         self.hands.remove(hand)
@@ -542,7 +597,7 @@ class HandDetector:
 
                 ##### Show final image ########
                 if self.debug:
-                    cv2.imshow('Detection', overlayed_frame)
+                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
                 ###############################
                 # Print execution time
                 # print time.time()-start_time
@@ -573,7 +628,7 @@ class HandDetector:
 
                 ##### Show final image ########
                 if self.debug:
-                    cv2.imshow('Detection', overlayed_frame)
+                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
                 ###############################
                 # Print execution time
                 # print time.time()-start_time
@@ -900,7 +955,7 @@ class HandDetector:
 
     def draw_contour_features(self, to_show, hand_contour):
         perimeter = cv2.arcLength(hand_contour, True)
-        print perimeter
+        # print perimeter
         hull = cv2.convexHull(hand_contour, returnPoints=False)
         new_contour = []
         # for index in hull:
@@ -950,7 +1005,7 @@ class HandDetector:
         # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
         roi_mask = mask[y:y + h, x:x + w]
         if self.debug:
-            cv2.imshow("follow (ROI extracted mask)", roi_mask)
+            cv2.imshow("DEBUG: HandDetection_lib: follow (ROI extracted mask)", roi_mask)
         roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
         cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
         # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
@@ -995,7 +1050,7 @@ class HandDetector:
         # print "diff"
         gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
         if self.debug:
-            cv2.imshow("diff", gray_diff)
+            cv2.imshow("DEBUG: HandDetection_lib: diff", gray_diff)
         # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
         _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
@@ -1016,7 +1071,7 @@ class HandDetector:
             # print "diff"
             gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
             if self.debug:
-                cv2.imshow("diff", gray_diff)
+                cv2.imshow("DEBUG: HandDetection_lib: diff", gray_diff)
             # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
             _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
         return mask
@@ -1108,7 +1163,7 @@ class HandDetector:
             cv2.drawContours(to_show, contours, -1, (122, 122, 0), 1)
             if roi is not None:
                 cv2.rectangle(to_show, (roi[0], roi[1]), (roi[0] + roi[2], roi[1] + roi[3]), (122, 122, 255))
-            cv2.imshow("detect_hands_in_frame (Detected Contours)", to_show)
+            cv2.imshow("DEBUG: HandDetection_lib: detect_hands_in_frame (Detected Contours)", to_show)
             k = cv2.waitKey(1)
 
         if len(contours) > 0:
@@ -1322,7 +1377,8 @@ class HandDetector:
 
         if hand_contour is not None:
             cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
-            cv2.imshow("detect_fist (Hand with contour)", to_show)
+            if self.debug:
+                cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Hand with contour)", to_show)
             hull = cv2.convexHull(hand_contour, returnPoints=False)
             new_contour = []
             # for index in hull:
@@ -1367,8 +1423,8 @@ class HandDetector:
 
             for point in max_group:
                 cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
-
-            cv2.imshow("detect_fist (Fist_ring)", to_show)
+            if self.debug:
+                cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Fist_ring)", to_show)
             new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
             return cv2.boundingRect(new_contour), new_contour
         else:
@@ -1420,7 +1476,7 @@ class HandDetector:
                 if self.debug:
                     to_show = frame.copy()
                     cv2.drawContours(to_show, contours, -1, 255)
-                    cv2.imshow("update_hand_charasteristics (New Contour)", to_show)
+                    cv2.imshow("DEBUG: HandDetection_lib: update_hand_charasteristics (New Contour)", to_show)
                 updated_hand = self.update_hand_with_contour(frame, hand_contour, updated_hand)
             else:
                 return None
