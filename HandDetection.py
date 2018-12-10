@@ -564,7 +564,7 @@ class HandDetector:
         depth = depth.reshape(480, 640, 1)
         return depth
 
-    def compute(self):
+    def capture_and_compute(self):
         while self.capture.isOpened():
 
             # Measure execution time
@@ -609,7 +609,7 @@ class HandDetector:
             if k == 27:
                 break
 
-    def compute2(self):
+    def capture_and_compute2(self):
         while self.capture.isOpened():
 
             # Measure execution time
@@ -1508,7 +1508,7 @@ def main():
     hand_detector = HandDetector()
     hand_detector.debug = True
     # hand_detector = HandDetector('./resources/testing_hand_video2.mp4')
-    hand_detector.compute2()
+    hand_detector.capture_and_compute2()
     hand_detector.exit()
 
 
