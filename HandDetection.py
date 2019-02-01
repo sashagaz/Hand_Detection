@@ -532,7 +532,8 @@ class HandDetector:
             # Absolutly unusefull
             mask = self.get_movement_buffer_mask(image)
         elif mode == "depth":
-            print "Mode depth"
+            if self.debug:
+                print "Mode depth"
             assert self.depth_mask is not None, "Depth mask must be set with set_depth_mask method. Use this method only with RGBD cameras"
             #TODO: ENV_DEPENDENCE: the second value depends on the distance from the camera to the maximum depth where it can be found in a scale of 0-255
             mask = self.depth_mask
