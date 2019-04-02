@@ -1362,7 +1362,6 @@ class HandDetector:
                     self.hands.remove(existing_hand)
 
     def detect_fist(self, frame, roi):
-        to_show = frame.copy()
         contours, _ = self.create_contours_and_mask(frame, roi)
         hand_contour = None
         if len(contours) > 0:
@@ -1377,8 +1376,9 @@ class HandDetector:
                     hand_contour = contours[i]
 
         if hand_contour is not None:
-            cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
             if self.debug:
+                to_show = frame.copy()
+                cv2.drawContours(to_show, [hand_contour], -1, (0, 255, 255), 1)
                 cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Hand with contour)", to_show)
             hull = cv2.convexHull(hand_contour, returnPoints=False)
             new_contour = []
@@ -1400,6 +1400,8 @@ class HandDetector:
             # define criteria and apply kmeans()
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
             new_contour_2d_points = np.float32(np.array(new_contour).reshape(len(new_contour), 2))
+
+            #Try to separate point into 2 groups.
             ret, label, center = cv2.kmeans(new_contour_2d_points, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
             # Now separate the data, Note the ravel()
@@ -1407,7 +1409,6 @@ class HandDetector:
             max_group = None
 
             for label_number in range(2):
-
                 group = new_contour_2d_points[label.ravel() == label_number]
                 rand_color = get_random_color()
                 for point in group:
@@ -1416,16 +1417,16 @@ class HandDetector:
                     max_group_len = len(group)
                     max_group = group
 
+            # get the circle enclosing the bigger group of points in the contour of the fist
             (x, y), radius = cv2.minEnclosingCircle(max_group)
             center = (int(x), int(y))
             radius = int(radius) + 20
-
-            cv2.circle(to_show, center, radius, (122, 122, 0), 1)
-
-            for point in max_group:
-                cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
             if self.debug:
+                cv2.circle(to_show, center, radius, (122, 122, 0), 1)
+                for point in max_group:
+                    cv2.circle(to_show, tuple(point), 5, (0, 255, 255), 2)
                 cv2.imshow("DEBUG: HandDetection_lib: detect_fist (Fist_ring)", to_show)
+            # create the countour with only the points inside that circle
             new_contour = extract_contour_inside_circle(hand_contour, (center, radius))
             return cv2.boundingRect(new_contour), new_contour
         else:
