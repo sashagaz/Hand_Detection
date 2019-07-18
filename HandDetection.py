@@ -611,38 +611,41 @@ class HandDetector:
                 break
 
     def capture_and_compute2(self):
-        while self.capture.isOpened():
+        if self.capture.isOpened():
+            while self.capture.isOpened():
 
-            # Measure execution time
-            # start_time = time.time()
+                # Measure execution time
+                # start_time = time.time()
 
-            # Capture frames from the camera
-            ret, frame = self.capture.read()
+                # Capture frames from the camera
+                ret, frame = self.capture.read()
 
-            if ret is True:
-                if len(self.hands) != 1:
-                    self.add_hand2(frame)
+                if ret is True:
+                    if len(self.hands) != 1:
+                        self.add_hand2(frame)
 
-                self.update_detection_and_tracking(frame)
+                    self.update_detection_and_tracking(frame)
 
-                overlayed_frame = self.compute_overlayed_frame(frame)
+                    overlayed_frame = self.compute_overlayed_frame(frame)
 
-                ##### Show final image ########
-                if self.debug:
-                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
-                ###############################
-                # Print execution time
-                # print time.time()-start_time
-            else:
-                print "No video detected"
+                    ##### Show final image ########
+                    if self.debug:
+                        cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
+                    ###############################
+                    # Print execution time
+                    # print time.time()-start_time
+                else:
+                    print "No video detected"
 
-            # close the output video by pressing 'ESC'
-            if self.debug and len(self.hands) > 0:
-                k = cv2.waitKey(0) & 0xFF
-            else:
-                k = cv2.waitKey(5) & 0xFF
-            if k == 27:
-                break
+                # close the output video by pressing 'ESC'
+                if self.debug and len(self.hands) > 0:
+                    k = cv2.waitKey(0) & 0xFF
+                else:
+                    k = cv2.waitKey(5) & 0xFF
+                if k == 27:
+                    break
+        else:
+            print("Capture device is not oppened.")
 
     def compute_overlayed_frame(self, frame):
         overlayed_frame = frame.copy()
