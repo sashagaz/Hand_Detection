@@ -29,41 +29,6 @@ def calculate_angle(v1, v2):
 
 
 
-def extract_contour_inside_circle(full_contour, circle):
-    """
-    Get the intersection of a contour and a circle
-
-    :param full_contour: Contour to be intersected
-    :param circle: circle to be intersected with the contour
-    :return: contour that is inside the given circle
-    """
-    center, radius = circle
-    new_contour = []
-    for point in full_contour:
-        if (point[0][0] - center[0]) ** 2 + (point[0][1] - center[1]) ** 2 < radius ** 2:
-            new_contour.append(point)
-    return np.array(new_contour)
-
-
-def extract_contour_inside_rect(full_contour, rect):
-    """
-    Get the intersection of a contour and a rectangle
-
-    :param full_contour:  Contour to be intersected
-    :param rect: rectangle to be intersected with the contour
-    :return: ontour that is inside the given rectangle
-    """
-    x1, y1, w, h = rect
-    x2 = x1 + w
-    y2 = y1 + h
-    new_contour = []
-    for point in full_contour:
-        if x1 < point[0][0] < x2 and y1 < point[0][1] < y2:
-            new_contour.append(point)
-    return np.array(new_contour)
-
-
-
 
 
 class HandDetector:
@@ -82,7 +47,6 @@ class HandDetector:
             self.capture = None
 
         self.hands = []
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.first_frame = None
         self.next_hand_id = 0
         # TODO: ENV_DEPENDENCE: depending on the environment and camera it would be more or less frames to discard
@@ -100,7 +64,7 @@ class HandDetector:
 
 
     # TODO: Extend to return mutiple hands?
-    # TODO: Propability of been a hand could be calculated depending contour points, area, number of fingertips detected
+    # TODO: create a static method on Hand to return all the hands detected on a frame
     def hand_from_frame(self, frame, roi = None):
         """
         Get a Hand class from a roi in a frame
@@ -114,15 +78,31 @@ class HandDetector:
 
         hand.initial_roi = roi
         #TODO: only to test. Replace
-        hand.depth_threshold = 600
+        hand.depth_threshold = self.depth_threshold
+        hand._detect_in_frame(frame)
         return hand
         # hand.depth_threshold = self.depth_threshold
 
 
-        hand.update_with_frame(frame)
+
+    def add_new_expected_hand(self, frame_roi):
+        hand = Hand()
+        hand.initial_roi = frame_roi
+        # TODO: add only mode is Depth
+        hand.depth_threshold = self.depth_threshold
+        self.hands.append(hand)
+
+    def update_expected_hands(self, frame):
+        if len(self.hands) > 0:
+            for existing_hand in self.hands:
+                existing_hand.detect_and_track(frame)
+                # TODO: determine if hands are automatically removed or must be removed by the user
+                # if existing_hand.confidence <= 0:
+                #     print "removing hand"
+                #     self.hands.remove(existing_hand)
 
 
-    # TODO: extract from here a method to get a hand from a frame, and this would only try and append.
+
     def add_hand2(self, frame, roi = None):
         """
 
@@ -133,14 +113,15 @@ class HandDetector:
         """
 
         new_hand = self.hand_from_frame(frame, roi)
+        new_hand._track_in_frame(frame)
 
-        if new_hand is not None:
+        if new_hand.valid:
             new_hand.id = len(self.hands)
             self.hands.append(new_hand)
             # cv2.putText(masked_frame, "HAND FOUND",
             #             (template_x, template_y + template_h + 10),
             #             self.font, 1, [0, 0, 0], 2)
-            print("HAND FOUND")
+            # print("add_hand2:", "HAND FOUND")
         else:
             # cv2.putText(masked_frame, "CENTER YOUR HAND",
             #             (template_x, template_y + template_h + 10),
@@ -203,7 +184,7 @@ class HandDetector:
                         hand = Hand()
                         hand._id = len(self.hands)
                         hand._contour = hand_contour
-                        hand._bounding_rect = detected_hand_bounding_rect
+                        hand._detection_roi = detected_hand_bounding_rect
                         self.hands.append(hand)
                         cv2.putText(masked_frame, "HAND FOUND",
                                     (template_x, template_y + template_h + 10),
@@ -253,48 +234,6 @@ class HandDetector:
         # return the intersection over union value
         return iou, (x_left, y_top, x_right, y_bottom)
 
-    def calculate_max_contour(self, image, to_binary=True):
-        bounding_rect = None
-        image_roi = None
-        if to_binary:
-            gray_diff = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            _, mask = cv2.threshold(gray_diff, 40, 255, cv2.THRESH_BINARY)
-        else:
-            mask = image
-        kernel_square = np.ones((11, 11), np.uint8)
-        kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-
-        # Perform morphological transformations to filter out the background noise
-        # Dilation increase skin color area
-        # Erosion increase skin color area
-        dilation = cv2.dilate(mask, kernel_ellipse, iterations=1)
-        erosion = cv2.erode(dilation, kernel_square, iterations=1)
-        dilation2 = cv2.dilate(erosion, kernel_ellipse, iterations=1)
-        filtered = cv2.medianBlur(dilation2.astype(np.uint8), 5)
-        kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
-        dilation2 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-        kernel_ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        dilation3 = cv2.dilate(filtered, kernel_ellipse, iterations=1)
-        median = cv2.medianBlur(dilation2, 5)
-        ret, thresh = cv2.threshold(median, 127, 255, 0)
-        cnts = None
-        max_area = 100
-        ci = 0
-        # Find contours of the filtered frame
-        _, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            for i in range(len(contours)):
-                cnt = contours[i]
-                area = cv2.contourArea(cnt)
-                if area > max_area:
-                    max_area = area
-                    ci = i
-            cnts = contours[ci]
-            bounding_rect = cv2.boundingRect(cnts)
-            x, y, w, h = bounding_rect
-            image_roi = mask[y:y + h, x:x + w]
-        return cnts, bounding_rect, image_roi
-
 
     def set_mask_mode(self, mode):
         self.mask_mode = mode
@@ -327,7 +266,7 @@ class HandDetector:
                         else:
                             print "_____________No updated information"
                     hand.update_truth_value_by_frame2()
-                    if hand.truth_value <= 0:
+                    if hand.confidence <= 0:
                         print "removing hand"
                         self.hands.remove(hand)
 
@@ -610,7 +549,7 @@ class HandDetector:
             cv2.putText(frame, 'Center', tuple(hand.center_of_mass), self.font, 0.5, (255, 255, 255), 1)
 
         hand_string = "hand %d %s: D=%s|T=%s|L=%s|F=%d" % (
-        hand.id, str(hand.center_of_mass), str(hand.detected), str(hand.tracked), str(hand.truth_value),
+        hand.id, str(hand.center_of_mass), str(hand.detected), str(hand.tracked), str(hand.confidence),
         hand.frame_count)
         cv2.putText(frame, hand_string, (10, 30 + 15 * int(hand.id)), self.font, 0.5, (255, 255, 255), 1)
         return frame
@@ -821,29 +760,6 @@ class HandDetector:
         return new_hands
 
 
-    def get_hand_bounding_rect_from_fingers(self, hand_contour, fingers_contour):
-        (x, y), radius = cv2.minEnclosingCircle(fingers_contour)
-        center = (int(x), int(y))
-        radius = int(radius) + 10
-        hand_contour = extract_contour_inside_circle(hand_contour, (center, radius))
-        hand_bounding_rect = cv2.boundingRect(hand_contour)
-        return hand_bounding_rect, ((int(x), int(y)), radius), hand_contour
-
-    def get_hand_bounding_rect_from_rect(self, hand_contour, bounding_rect):
-        hand_contour = extract_contour_inside_rect(hand_contour, bounding_rect)
-        hand_bounding_rect = cv2.boundingRect(hand_contour)
-        return hand_bounding_rect, hand_contour
-
-    def get_hand_bounding_rect_from_center_of_mass(self, hand_contour, center_of_mass, average_distance):
-        (x, y) = center_of_mass
-        radius = average_distance
-        center = (int(x), int(y))
-        radius = int(radius) + 10
-        hand_contour = extract_contour_inside_circle(hand_contour, (center, radius))
-        hand_bounding_rect = cv2.boundingRect(hand_contour)
-        return hand_bounding_rect, ((int(x), int(y)), radius), hand_contour
-
-
 
     def reset_background(self):
         # TODO test it better
@@ -878,14 +794,6 @@ class HandDetector:
                 self.hands.append(detected_hand)
                 print "New hand"
 
-    def update_detection_and_tracking(self, frame):
-
-        if len(self.hands) > 0:
-            for index, existing_hand in enumerate(self.hands):
-                existing_hand.detect_and_track()
-                if existing_hand.truth_value <= 0:
-                    print "removing hand"
-                    self.hands.remove(existing_hand)
 
     def detect_fist(self, frame, roi):
         contours, _ = self.create_contours_and_mask(frame, roi)
