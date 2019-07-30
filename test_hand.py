@@ -40,18 +40,21 @@ class TestRoi(unittest.TestCase):
                 hand.initial_roi = Roi.from_frame(frame, SIDE.CENTER, 50)
                 hand.detect_and_track(frame)
                 print("testing file %s"%file)
-                self.assertEqual((hand._detected > 0), expected_results[file][0])
-                self.assertEqual(hand._tracked, expected_results[file][1])
+                self.assertEqual(hand.detected , expected_results[file][0])
+                self.assertEqual(hand.tracked, expected_results[file][1])
                 frame = self.draw_in_frame(hand, frame)
                 cv2.imshow("final", frame)
-                cv2.waitKey(1000)
+                key = cv2.waitKey(5000)
+                if key == 112:
+                    while cv2.waitKey(1000) != 112:
+                        pass
 
 
     def draw_in_frame(self, hand, frame):
         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-        frame = hand._initial_roi.draw_on_frame(frame,[0,0,255])
-        frame = hand._detection_roi.draw_on_frame(frame, [0, 255, 0])
-        frame = hand._tracking_roi.draw_on_frame(frame, [255, 0, 0])
+        frame = hand.initial_roi.draw_on_frame(frame,[0,0,255])
+        frame = hand.detection_roi.draw_on_frame(frame, [0, 255, 0])
+        frame = hand.tracking_roi.draw_on_frame(frame, [255, 0, 0])
         # frame = hand._extended_roi.draw_on_frame(frame, [0, 0, 255])
         return frame
     # def test_roi_upscale(self):
