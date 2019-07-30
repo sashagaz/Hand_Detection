@@ -106,6 +106,38 @@ class Roi(list):
         cv2.rectangle(new_frame, self.top_left, self.bottom_right, color)
         return new_frame
 
+
+    @property
+    def top_left(self):
+        return (self.x, self.y)
+
+    @property
+    def top_right(self):
+        return (self.x, self.x+ self.width)
+
+    @property
+    def bottom_left(self):
+        return (self.x, self.y + self.height)
+
+    @property
+    def bottom_right(self):
+        return (self.x + self.width, self.y + self.height)
+
+    def intersection_rate(self, s2):
+
+        x1, y1 = self.top_left
+        x2, y2 = self.bottom_right
+        s_1 = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
+
+        x1, y1 = s2.top_left
+        x2, y2 = s2.bottom_right
+        s_2 = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
+
+        area, _intersection = cv2.intersectConvexConvex(s_1, s_2)
+        return 2 * area / (cv2.contourArea(s_1) + cv2.contourArea(s_2))
+
+
+
     def upscaled(self, limiting_roi, upscaled_pixels):
         """
         Create an upscaled version of an input ROI restricted to the size of a frame
