@@ -118,6 +118,7 @@ class Hand(object):
         self._confidence = 0
         self._tracked = False
         self._detected = False
+        self._detection_status = 0
         self._position_history = []
 
 
@@ -440,9 +441,11 @@ class Hand(object):
                 # self._detected is updated inside
                 self.update_hand_with_contour(hand_contour)
             else:
-                self._detected = -1
+                self._detected = False
+                self._detection_status = -1
         else:
-            self._detected = -2
+            self._detected = False
+            self._detection_status = -2
 
 
     def calculate_max_contour(self, image, to_binary=True):
@@ -543,15 +546,18 @@ class Hand(object):
                         cv2.imshow("update_hand_with_contour", to_show)
 
 
-                    self._detected = 1
+                    self._detected = True
+                    self._detection_status = 1
                     self._ever_detected = True
                     self._confidence = 100
                 else:
-                    self._detected = -1
+                    self._detection_status = -1
+                    self._detected = False
                     self._confidence = 0
                     return
             else:
-                self._detected = -1
+                self._detection_status = -1
+                self._detected = False
                 self._confidence = 0
                 return
             # Find moments of the largest contour
@@ -606,7 +612,8 @@ class Hand(object):
                     finger_distances.append(distance)
                 self._finger_distances = finger_distances
         else:
-            self._detected = -2
+            self._detection_status = -2
+            self._detected = False
             self._confidence = 0
             return
 
@@ -688,13 +695,14 @@ class Hand(object):
         :return:
         """
         self._detect_in_frame(frame)
-        self._track_in_frame(frame)
+        if self._detected:
         print(self._detected>0, self._tracked)
         if self._detected > 0:
             self._consecutive_detection_fails = 0
         else:
             self._consecutive_detection_fails += 1
             # if it's the first time we don't detect on a row...
+        print(self._detected, self._tracked)
             if self._consecutive_detection_fails == 1:
                 # if we have a tracking roi we use it
                 if self._tracked:
@@ -720,7 +728,7 @@ class Hand(object):
         :return:
         """
         current_roi = None
-        if self._detected > 0:
+        if self._detected:
             current_roi = self._detection_roi
         else:
             # if we already have failed to detect we use the extended_roi
