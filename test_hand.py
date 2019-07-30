@@ -1,3 +1,4 @@
+import os
 import unittest
 
 import cv2
@@ -17,14 +18,42 @@ class TestRoi(unittest.TestCase):
         """
         hand = Hand()
         hand.depth_threshold = 130
-        frame = cv2.imread("/home/robolab/robocomp/components/robocomp-robolab/components/handDetection/src/images/depth_images/20190725130248.png",0 )
-        hand.initial_roi = Roi.from_frame(frame,SIDE.CENTER, 50)
-        hand._detect_in_frame(frame)
-        hand._track_in_frame(frame, )
-        self.assertGreater(hand._detected, 0)
+        expected_results = {
+            "20190725130248.png": [False, False],
+            "20190725130249.png": [False, False],
+            "20190725130250.png": [True, True],
+            "20190725130251.png": [False, True],  # fingers too close and it's considered not a hand
+            "20190725130252.png": [True, True],
+            "20190725130253.png": [True, True],
+            "20190725130254.png": [False, True],
+            "20190725130255.png": [False, True],
+            "20190725130256.png": [False, True],
+            "20190725130257.png": [False, True],
+            "20190725130258.png": [False, True]
 
 
+        }
+        full_path = "/home/robolab/robocomp/components/robocomp-robolab/components/handDetection/src/images/depth_images"
+        for file in sorted(os.listdir(full_path)):
+            if file.endswith(".png") and file in expected_results:
+                frame = cv2.imread(os.path.join(full_path, file),0)
+                hand.initial_roi = Roi.from_frame(frame, SIDE.CENTER, 50)
+                hand.detect_and_track(frame)
+                print("testing file %s"%file)
+                self.assertEqual((hand._detected > 0), expected_results[file][0])
+                self.assertEqual(hand._tracked, expected_results[file][1])
+                frame = self.draw_in_frame(hand, frame)
+                cv2.imshow("final", frame)
+                cv2.waitKey(1000)
 
+
+    def draw_in_frame(self, hand, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        frame = hand._initial_roi.draw_on_frame(frame,[0,0,255])
+        frame = hand._detection_roi.draw_on_frame(frame, [0, 255, 0])
+        frame = hand._tracking_roi.draw_on_frame(frame, [255, 0, 0])
+        # frame = hand._extended_roi.draw_on_frame(frame, [0, 0, 255])
+        return frame
     # def test_roi_upscale(self):
     #     """
     #     Test that roi upscale right
