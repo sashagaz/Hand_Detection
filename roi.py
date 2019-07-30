@@ -174,6 +174,16 @@ class Roi(list):
         else:
             new_frame = frame
         cv2.rectangle(new_frame, self.top_left, self.bottom_right, color)
+        cv2.circle(new_frame, self.top_left,3,color,3,1)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = 0.3
+        lineType = 1
+        cv2.putText(new_frame, str(self.top_left),
+                    self.top_left,
+                    font,
+                    fontScale,
+                    color,
+                    lineType)
         return new_frame
 
 
