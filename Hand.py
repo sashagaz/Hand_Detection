@@ -295,9 +295,7 @@ class Hand(object):
         else:
             x, y, w, h = self._initial_roi
 
-        current_roi_mask = np.zeros(hands_mask.shape, dtype='uint8')
-        current_roi_mask[y:y + h, x:x + w] = 255
-        roied_hands_mask = cv2.bitwise_and(hands_mask, current_roi_mask)
+        roied_hands_mask = roi.apply_to_frame_as_mask(hands_mask)
         if self._debug:
             cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (Frame Mask)", hands_mask)
             # to_show = cv2.resize(hands_mask, None, fx=.3, fy=.3, interpolation=cv2.INTER_CUBIC)
@@ -306,8 +304,8 @@ class Hand(object):
             # cv2.putText(to_show, (str(h)), (x + w, y + h), FONT, 0.3, [100, 255, 255], 1)
             # cv2.putText(to_show, (str(w * h)), (x + w / 2, y + h / 2), FONT, 0.3, [100, 100, 255], 1)
             # cv2.putText(to_show, (str(x)+", "+str(y)), (x-10, y-10), FONT, 0.3, [255, 255, 255], 1)
-            cv2.rectangle(to_show, (x, y), (x + w, y + h), [255, 255, 255])
-            cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (current_roi_mask)", current_roi_mask)
+            to_show = roi.draw_on_frame(to_show)
+            cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (current_roi_mask)", roi.extract_from_frame(frame))
             cv2.imshow("DEBUG: HandDetection_lib: create_contours_and_mask (ROIed Mask)", to_show)
 
         ret, thresh = cv2.threshold(roied_hands_mask, 127, 255, 0)
@@ -419,8 +417,6 @@ class Hand(object):
 
         # Create contours and mask
         self._frame_contours, self._frame_mask = self.create_contours_and_mask(frame, search_roi)
-        masked_frame = np.zeros(frame.shape, dtype="uint8")
-        masked_frame[::] = 255
 
         # get the maximum contour
         if len(self._frame_contours) > 0 and len(self._frame_mask) > 0:
@@ -540,9 +536,7 @@ class Hand(object):
                         to_show = self._last_frame.copy()
                         cv2.drawContours(to_show, [hand_contour], -1, (255, 255, 255), 2)
                         cv2.drawContours(to_show, [fingers_contour], -1, (200, 200, 200), 2)
-                        cv2.rectangle(to_show, (self._detection_roi.x, self._detection_roi.y), (
-                        self._detection_roi.x + self._detection_roi.width,
-                        self._detection_roi.y + self._detection_roi.height), [255, 255, 255])
+                        to_show = self._detection_roi.draw_on_frame(to_show)
                         # cv2.rectangle(to_show, (self._detection_roi.y, self._detection_roi.x), (self._detection_roi.y + self._detection_roi.height, self._detection_roi.x + self._detection_roi.width), [255, 255, 0])
                         # (x, y, w, h) = cv2.boundingRect(hand_contour)
                         # cv2.rectangle(to_show, (self._detection_roi.y, self._detection_roi.x), (self._detection_roi.x + self._detection_roi.height, self._detection_roi.x + self._detection_roi.width), [255, 255, 0])
@@ -746,49 +740,49 @@ class Hand(object):
     def _track_in_frame(self, frame, method="camshift"):
         self._last_frame = frame
         if self._ever_detected:
-        roi_for_tracking = self.get_roi_to_use(frame)
+            roi_for_tracking = self.get_roi_to_use(frame)
 
-        mask = self.create_hand_mask(frame)
-        x, y, w, h = roi_for_tracking
-        track_window = tuple(roi_for_tracking)
-        # set up the ROI for tracking
-        roi = frame[y:y + h, x:x + w]
+            mask = self.create_hand_mask(frame)
+            x, y, w, h = roi_for_tracking
+            track_window = tuple(roi_for_tracking)
+            # set up the ROI for tracking
+            roi = roi_for_tracking.extract_from_frame(frame)
 
-        if self._debug:
-            print roi_for_tracking
-            cv2.imshow("DEBUG: HandDetection_lib: _track_in_frame (frame_roied)", roi)
+            if self._debug:
+                print roi_for_tracking
+                cv2.imshow("DEBUG: HandDetection_lib: _track_in_frame (frame_roied)", roi)
 
-        # fi masked frame is only 1 channel
-        if len(frame.shape) == 2 or (len(frame.shape) == 3 and frame.shape[2] == 1):
-            hsv_roi = cv2.cvtColor(roi, cv2.COLOR_GRAY2RGB)
-            hsv_roi = cv2.cvtColor(hsv_roi, cv2.COLOR_RGB2HSV)
-            hsv = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-            hsv = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
-        else:
-            hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
-        roi_mask = mask[y:y + h, x:x + w]
-        if self._debug:
-            cv2.imshow("DEBUG: HandDetection_lib: follow (ROI extracted mask)", roi_mask)
-        roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
-        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-        # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-        term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
+            # fi masked frame is only 1 channel
+            if len(frame.shape) == 2 or (len(frame.shape) == 3 and frame.shape[2] == 1):
+                hsv_roi = cv2.cvtColor(roi, cv2.COLOR_GRAY2RGB)
+                hsv_roi = cv2.cvtColor(hsv_roi, cv2.COLOR_RGB2HSV)
+                hsv = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                hsv = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
+            else:
+                hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            # mask = cv2.inRange(hsv_roi, np.array((0., 60., 32.)), np.array((180., 255., 255.)))
+            roi_mask = mask[y:y + h, x:x + w]
+            if self._debug:
+                cv2.imshow("DEBUG: HandDetection_lib: follow (ROI extracted mask)", roi_mask)
+            roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
+            cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+            # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
+            term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
 
-        dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
-        # apply meanshift to get the new location
-        if method == "meanshift":
-            self._tracked, track_window = cv2.meanShift(dst, track_window, term_crit)
-        else:
-            rotated_rect, track_window = cv2.CamShift(dst, track_window, term_crit)
+            dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
+            # apply meanshift to get the new location
+            if method == "meanshift":
+                self._tracked, track_window = cv2.meanShift(dst, track_window, term_crit)
+            else:
+                rotated_rect, track_window = cv2.CamShift(dst, track_window, term_crit)
                 track_window = cv2.minAreaRect(rotated_rect)
 
                 if roi_for_tracking.intersection_rate(Roi(track_window)) > 0.4 and roi_for_tracking != Roi(track_window):
-                self._tracked = True
-            else:
-                self._tracked = False
-        self._tracking_roi = Roi(track_window)
+                    self._tracked = True
+                else:
+                    self._tracked = False
+            self._tracking_roi = Roi(track_window)
         else:
             self._tracked = False
 

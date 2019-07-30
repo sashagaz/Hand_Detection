@@ -1,3 +1,6 @@
+import numpy as np
+
+import cv2
 
 
 class SIDE:
@@ -61,7 +64,7 @@ class Roi(list):
         assert isinstance(side, int) and 0 <= side < 5, "Side must be a value between 0 and 3 but %d given. Use the SIDE class to get valid values." % side
         assert isinstance(percent, (int, float)) , "Percent must be must be Integer or Float but %r given" % percent
         assert (0 < percent <= 100), "Percent must be a value between 0 and 100 but %d given" % percent
-        frame_width, frame_height = frame.shape[:2]
+        frame_height, frame_width = frame.shape[:2]
         # calculating percentage of the frame width and height
         frame_width_percent = frame_width * percent / 100
         frame_height_percent = frame_height * percent / 100
@@ -85,7 +88,23 @@ class Roi(list):
         new_roi = Roi([x, y, width, height])
         return new_roi
 
+    def apply_to_frame_as_mask(self, frame):
+        # TODO: if a copy of the frame is needed.
+        mask = np.zeros(frame.shape, dtype='uint8')
+        mask[self.y:self.y + self.height, self.x:self.x + self.width] = 255
+        roied_frame = cv2.bitwise_and(frame, mask)
+        return roied_frame
 
+    def extract_from_frame(self, frame):
+        return frame[self.y:self.y + self.height, self.x:self.x + self.width]
+
+    def draw_on_frame(self, frame, color = [255, 255, 255], copy = True):
+        if copy:
+            new_frame = frame.copy()
+        else:
+            new_frame = frame
+        cv2.rectangle(new_frame, self.top_left, self.bottom_right, color)
+        return new_frame
 
     def upscaled(self, limiting_roi, upscaled_pixels):
         """
