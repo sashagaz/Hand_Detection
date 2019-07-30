@@ -146,14 +146,68 @@ class Hand(object):
     def initial_roi(self):
         return self._initial_roi
 
+    @initial_roi.setter
+    def initial_roi(self, value):
+        assert all(isinstance(n, (int, float)) for n in value) or isinstance(value,
+                                                                             Roi), "initial_roi must be of the type Roi"
+        if isinstance(value, Roi):
+            self._initial_roi = value
+        else:
+            self._initial_roi = Roi(value)
+
+        self.extended_roi = self._initial_roi
+
+
+    @property
+    def tracking_roi(self):
+        return self._tracking_roi
+
+    @tracking_roi.setter
+    def tracking_roi(self, value):
+        assert all(isinstance(n, (int, float)) for n in value) or isinstance(value, Roi),  "tracking_roi must be of the type Roi"
+        if isinstance(value, Roi):
+            self._tracking_roi = value
+        else:
+            self._tracking_roi = Roi(value)
+        # Tracking_roi must be limited to the initial_roi
+        self._tracking_roi.limit_to_roi(self.initial_roi)
+
+    @property
+    def detection_roi(self):
+        return self._detection_roi
+
+    @detection_roi.setter
+    def detection_roi(self, value):
+        assert all(isinstance(n, (int, float)) for n in value) or isinstance(value,
+                                                                             Roi), "detection_roi must be of the type Roi"
+        if isinstance(value, Roi):
+            self._detection_roi = value
+        else:
+            self._detection_roi = Roi(value)
+        # Detection_roi must be limited to the initial_roi
+        self._detection_roi.limit_to_roi(self.initial_roi)
+
+    @property
+    def extended_roi(self):
+        return self._extended_roi
+
+    @extended_roi.setter
+    def extended_roi(self, value):
+        assert all(isinstance(n, (int, float)) for n in value) or isinstance(value,
+                                                                             Roi), "extended_roi must be of the type Roi"
+        if isinstance(value, Roi):
+            self._extended_roi = value
+        else:
+            self._extended_roi = Roi(value)
+        # Extended_roi must be limited to the initial_roi
+        self._extended_roi.limit_to_roi(self.initial_roi)
+
+
+
+
     @property
     def depth_threshold(self):
         return self._depth_threshold
-
-    @initial_roi.setter
-    def initial_roi(self, value):
-        self._initial_roi = value
-        self._extended_roi = value
 
     @depth_threshold.setter
     def depth_threshold(self, value):
@@ -169,8 +223,28 @@ class Hand(object):
 
     @property
     def valid(self):
-        return (self._detected > 0 or self._tracked or self._confidence > 0)
+        return (self.detected or self.tracked or self._confidence > 0)
 
+
+    @property
+    def detected(self):
+        return self._detected
+
+    @detected.setter
+    def detected(self, value):
+        self._detected = value
+
+    @property
+    def tracked(self):
+        return self._tracked
+
+    @tracked.setter
+    def tracked(self, value):
+        self._tracked = value
+
+#####################################################################
+########## Probably deprecated methods # TODO: check       ##########
+#####################################################################
 
     #TODO: Check if we need a deep copy of the data.
     def update_attributes_from_detected(self, other_hand):
@@ -186,7 +260,7 @@ class Hand(object):
         self._finger_distances = other_hand.finger_distances
         self._average_defect_distance = other_hand.average_defect_distance
         self._contour = other_hand.contour
-        self._detection_roi = other_hand._detection_roi
+        self.detection_roi = other_hand.detection_roi
         self._detected = True
 
     def update_truth_value_by_time(self):
@@ -279,11 +353,15 @@ class Hand(object):
         updated_hand._finger_distances = []
         updated_hand._average_defect_distance = []
         updated_hand._contour = None
-        updated_hand._detection_roi = self._detection_roi
+        updated_hand.detection_roi = self.detection_roi
         updated_hand._consecutive_tracking_fails = self._consecutive_tracking_fails
         updated_hand._position_history = self._position_history
         updated_hand._color = self._color
         return updated_hand
+
+#####################################################################
+##########    Currently used methods                       ##########
+#####################################################################
 
     def create_contours_and_mask(self, frame, roi=None):
         # Create a binary image where white will be skin colors and rest is black
@@ -294,7 +372,7 @@ class Hand(object):
         if roi is not None:
             x, y, w, h = roi
         else:
-            x, y, w, h = self._initial_roi
+            x, y, w, h = self.initial_roi
 
         roied_hands_mask = roi.apply_to_frame_as_mask(hands_mask)
         if self._debug:
@@ -533,16 +611,16 @@ class Hand(object):
                         hand_contour,
                         fingers_contour)
                     # detection roi is set to the bounding rect of the fingers upscaled 20 pixels
-                    # self._detection_roi = Roi(bounding_rect)
-                    self._detection_roi = Roi(bounding_rect).upscaled(Roi.from_frame(self._last_frame, SIDE.CENTER, 100), 10)
+                    # self.detection_roi = Roi(bounding_rect)
+                    self.detection_roi = Roi(bounding_rect).upscaled(Roi.from_frame(self._last_frame, SIDE.CENTER, 100), 10)
                     if self._debug:
                         to_show = self._last_frame.copy()
                         cv2.drawContours(to_show, [hand_contour], -1, (255, 255, 255), 2)
                         cv2.drawContours(to_show, [fingers_contour], -1, (200, 200, 200), 2)
-                        to_show = self._detection_roi.draw_on_frame(to_show)
-                        # cv2.rectangle(to_show, (self._detection_roi.y, self._detection_roi.x), (self._detection_roi.y + self._detection_roi.height, self._detection_roi.x + self._detection_roi.width), [255, 255, 0])
+                        to_show = self.detection_roi.draw_on_frame(to_show)
+                        # cv2.rectangle(to_show, (self.detection_roi.y, self.detection_roi.x), (self.detection_roi.y + self.detection_roi.height, self.detection_roi.x + self.detection_roi.width), [255, 255, 0])
                         # (x, y, w, h) = cv2.boundingRect(hand_contour)
-                        # cv2.rectangle(to_show, (self._detection_roi.y, self._detection_roi.x), (self._detection_roi.x + self._detection_roi.height, self._detection_roi.x + self._detection_roi.width), [255, 255, 0])
+                        # cv2.rectangle(to_show, (self.detection_roi.y, self.detection_roi.x), (self.detection_roi.x + self.detection_roi.height, self.detection_roi.x + self.detection_roi.width), [255, 255, 0])
                         cv2.imshow("update_hand_with_contour", to_show)
 
 
@@ -679,6 +757,7 @@ class Hand(object):
             # cv2.circle(frame, far, 10, [100, 255, 255], 3)
         return fingertips_coords, fingertips_indexes, intertips_coords, intertips_indexes
 
+    # TODO: modify to use a calculated confidence
     def is_hand(self, fingertips, intertips, strict=True):
         if strict:
             return len(fingertips) == 5 and len(intertips) > 2
@@ -690,29 +769,31 @@ class Hand(object):
         """
         Try to detect and track the hand on the given frame
 
-        If the hand is not detected the _extended_roi is updated which will be used in the next detection
+        If the hand is not detected the extended_roi is updated which will be used in the next detection
         :param frame:
         :return:
         """
         self._detect_in_frame(frame)
         if self._detected:
-        print(self._detected>0, self._tracked)
-        if self._detected > 0:
             self._consecutive_detection_fails = 0
         else:
             self._consecutive_detection_fails += 1
-            # if it's the first time we don't detect on a row...
+
+        self._track_in_frame(frame)
         print(self._detected, self._tracked)
-            if self._consecutive_detection_fails == 1:
-                # if we have a tracking roi we use it
-                if self._tracked:
-                    self._extended_roi = self._tracking_roi
-                else:
-                    # if we don't, we use the last detected roi
-                    self._extended_roi = self._detection_roi
+
+        # if it's the first time we don't detect in a row...
+        if self._consecutive_detection_fails == 1:
+            # if we have a tracking roi we use it
+            if self._tracked:
+                self.extended_roi = self.tracking_roi
             else:
-                # if it's not the first time we don't detect we just extend the extended roi.
-                self._extended_roi = self._extended_roi.upscaled(self._initial_roi, 10)
+                # if we don't, we use the last detected roi
+                self.extended_roi = self.detection_roi
+        elif self._consecutive_detection_fails > 1:
+            # if it's not the first time we don't detect we just extend the extended roi.
+            # it's autolimited to the initial Roi
+            self.extended_roi = self.extended_roi.upscaled(self.initial_roi, 10)
 
         if self._tracked:
             self._consecutive_tracking_fails = 0
@@ -729,17 +810,20 @@ class Hand(object):
         """
         current_roi = None
         if self._detected:
-            current_roi = self._detection_roi
+            current_roi = self.detection_roi
         else:
             # if we already have failed to detect we use the extended_roi
             if self._consecutive_detection_fails > 0:
-                current_roi = self._extended_roi
+                if self._tracked:
+                    current_roi = self.tracking_roi
+                else:
+                    current_roi = self.extended_roi
             else:
                 # Not detected and not consecutive fails on detection.
                 # It's probably the first time we try to detect.
                 # If no initial_roi is given an square of 200 x 200 is taken on the center
-                if self._initial_roi is not None:
-                    current_roi = self._initial_roi
+                if self.initial_roi is not None and self.initial_roi != Roi():
+                    current_roi = self.initial_roi
                 else:
                     current_roi = Roi.from_frame(frame, SIDE.CENTER, 50)
         assert current_roi != Roi(), "hand can't be detected on a %s roi of the frame" % str(current_roi)
