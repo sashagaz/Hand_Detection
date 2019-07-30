@@ -134,6 +134,7 @@ class Hand(object):
         self._debug = True
         self._depth_threshold = -1
         self._last_frame = None
+        self._ever_detected = False
 
 
 #####################################################################
@@ -150,8 +151,8 @@ class Hand(object):
 
     @initial_roi.setter
     def initial_roi(self, value):
-
         self._initial_roi = value
+        self._extended_roi = value
 
     @depth_threshold.setter
     def depth_threshold(self, value):
@@ -549,6 +550,7 @@ class Hand(object):
 
 
                     self._detected = 1
+                    self._ever_detected = True
                     self._confidence = 100
                 else:
                     self._detected = -1
@@ -708,7 +710,7 @@ class Hand(object):
                     self._extended_roi = self._detection_roi
             else:
                 # if it's not the first time we don't detect we just extend the extended roi.
-                self._extended_roi = self._extended_roi.upscaled(Roi.from_frame(frame), 10)
+                self._extended_roi = self._extended_roi.upscaled(self._initial_roi, 10)
 
         if self._tracked:
             self._consecutive_tracking_fails = 0
@@ -743,6 +745,7 @@ class Hand(object):
 
     def _track_in_frame(self, frame, method="camshift"):
         self._last_frame = frame
+        if self._ever_detected:
         roi_for_tracking = self.get_roi_to_use(frame)
 
         mask = self.create_hand_mask(frame)
@@ -779,11 +782,17 @@ class Hand(object):
             self._tracked, track_window = cv2.meanShift(dst, track_window, term_crit)
         else:
             rotated_rect, track_window = cv2.CamShift(dst, track_window, term_crit)
-            if len(rotated_rect)>0:
+                track_window = cv2.minAreaRect(rotated_rect)
+
+                if roi_for_tracking.intersection_rate(Roi(track_window)) > 0.4 and roi_for_tracking != Roi(track_window):
                 self._tracked = True
             else:
                 self._tracked = False
         self._tracking_roi = Roi(track_window)
+        else:
+            self._tracked = False
+
+
 
 
 def extract_contour_inside_circle(full_contour, circle):
