@@ -144,6 +144,20 @@ class Roi(list):
         new_roi = Roi([x, y, width, height])
         return new_roi
 
+    def limit_to_roi(self, other):
+        a, b = self, other
+        x1 = max(min(a.x1, a.x2), min(b.x1, b.x2))
+        y1 = max(min(a.y1, a.y2), min(b.y1, b.y2))
+        x2 = min(max(a.x1, a.x2), max(b.x1, b.x2))
+        y2 = min(max(a.y1, a.y2), max(b.y1, b.y2))
+        if x1 < x2 and y1 < y2:
+            width = abs(x2 - x1)
+            height = abs(y2 - y1)
+            self.x = x1
+            self.y = y1
+            self.width = width
+            self.height = height
+
     def apply_to_frame_as_mask(self, frame):
         # TODO: if a copy of the frame is needed.
         mask = np.zeros(frame.shape, dtype='uint8')
