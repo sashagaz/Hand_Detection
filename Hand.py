@@ -865,22 +865,24 @@ class Hand(object):
             dst = cv2.calcBackProject([hsv], [0], roi_hist, [0, 180], 1)
             # apply meanshift to get the new location
             if method == "meanshift":
-                self._tracked, track_window = cv2.meanShift(dst, track_window, term_crit)
+                tracked, new_track_window = cv2.meanShift(dst, track_window, term_crit)
+                self._tracked = (tracked != 0)
             else:
-                rotated_rect, track_window = cv2.CamShift(dst, track_window, term_crit)
-                track_window = cv2.minAreaRect(rotated_rect)
+                rotated_rect, new_track_window = cv2.CamShift(dst, track_window, term_crit)
 
-                if roi_for_tracking.intersection_rate(Roi(track_window)) > 0.4 and roi_for_tracking != Roi(track_window):
+                intersection_rate = roi_for_tracking.intersection_rate(Roi(new_track_window))
+                if intersection_rate and roi_for_tracking != Roi(new_track_window):
                     self._tracked = True
                 else:
                     self._tracked = False
-            self._tracking_roi = Roi(track_window)
+            if self._tracked:
+                self.tracking_roi = Roi(new_track_window)
         else:
             self._tracked = False
 
 
 
-
+# TODO: move to a utils file
 def extract_contour_inside_circle(full_contour, circle):
     """
     Get the intersection of a contour and a circle
@@ -896,7 +898,7 @@ def extract_contour_inside_circle(full_contour, circle):
             new_contour.append(point)
     return np.array(new_contour)
 
-
+# TODO: move to a utils file
 def extract_contour_inside_rect(full_contour, rect):
     """
     Get the intersection of a contour and a rectangle
