@@ -56,8 +56,64 @@ class Roi(list):
         self[3]=height
 
     @property
+    def x1(self):
+        return self.x
+
+    @x1.setter
+    def x1(self, value):
+        self.x = value
+
+    @property
+    def x2(self):
+        return self.x+self.width
+
+    @x2.setter
+    def x2(self, value):
+        width = value-self.x
+        assert width > 0, "Not a valid x2 value %d. It results in a width value of %d" % (value, width)
+        self.width = width
+
+    @property
+    def y1(self):
+        return self.y
+
+    @y1.setter
+    def y1(self, value):
+        self.y = value
+
+    @property
+    def y2(self):
+        return self.y +self.height
+
+    @y2.setter
+    def y2(self, value):
+        height = value - self.y
+        assert height > 0, "Not a valid y2 value %d. It results in a height value of %d" % (value, height)
+        self.height = height
+
+    @property
+    def p1(self):
+        return (self.x, self.y)
+
+    @p1.setter
+    def p1(self, value):
+        assert isinstance(value, (tuple, list)), "p1 need to be a tuple or list. type is %s" % (type(value))
+        assert len(value)==2, "p1 need to have a len of 2. %r have a len of %d" % (value, len(value))
+        self.x, self.y = value
+
+    @property
+    def p2(self):
+        return (self.x2, self.y2)
+
+    @p2.setter
+    def p2(self, value):
+        assert isinstance(value, (tuple, list)), "p1 need to be a tuple or list. type is %s" % (type(value))
+        assert len(value) == 2, "p1 need to have a len of 2. %r have a len of %d" % (value, len(value))
+        self.x2, self.y2 = value
+
+    @property
     def init_coords(self):
-        return (self[0], self[1])
+        return self.p1
 
     @staticmethod
     def from_frame(frame, side=SIDE.TOP, percent=100):
