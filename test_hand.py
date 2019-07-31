@@ -4,6 +4,7 @@ import unittest
 import cv2
 
 from HandDetection.Hand import Hand
+from HandDetection.rgbdframe import RGBDFrame
 from HandDetection.roi import Roi, SIDE
 
 
@@ -36,7 +37,7 @@ class TestRoi(unittest.TestCase):
         full_path = "/home/robolab/robocomp/components/robocomp-robolab/components/handDetection/src/images/depth_images"
         for file in sorted(os.listdir(full_path)):
             if file.endswith(".png") and file in expected_results:
-                frame = cv2.imread(os.path.join(full_path, file),0)
+                frame = RGBDFrame(cv2.imread(os.path.join(full_path, file),0))
                 hand.initial_roi = Roi.from_frame(frame, SIDE.CENTER, 50)
                 hand.detect_and_track(frame)
                 print("testing file %s"%file)
