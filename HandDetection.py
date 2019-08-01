@@ -10,10 +10,11 @@ import cv2
 import numpy as np
 
 
-# Function to find angle between two vectors
+
 def calculate_angle(v1, v2):
     """
-    Calculate an return the angle between two verctors in degrees
+    Calculate an return the angle between two vectors in degrees
+    TODO: move to a utils file.
 
     :param v1: input vector 1
     :param v2: input vector
@@ -33,7 +34,7 @@ def calculate_angle(v1, v2):
 
 class HandDetector:
     """
-    Class to detect hands on a image
+    Class to detect hands on a image. It keeps an array with the expected hands.
 
     """
     def __init__(self, source=0):
@@ -63,12 +64,12 @@ class HandDetector:
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
 
-    # TODO: Extend to return mutiple hands?
+    # TODO: Extend to return multiple hands?
     # TODO: create a static method on Hand to return all the hands detected on a frame
     def hand_from_frame(self, frame, roi = None):
         """
         Get a Hand class from a roi in a frame
-
+        TODO: Check if it can be removed. It have been replaced by update_expected_hands
         :param frame: frame where we want to look for the hand
         :param roi: roi in frame to look for the hand
         :return: Hand if found on frame, None if not
@@ -86,13 +87,23 @@ class HandDetector:
 
 
     def add_new_expected_hand(self, frame_roi):
+        """
+        Add a new expected hand to the list of the detector.
+        :param frame_roi: initial roi where the hand is expected to be find and that will limit the area of the frame where it's expected to be found
+        :return:
+        """
         hand = Hand()
         hand.initial_roi = frame_roi
-        # TODO: add only mode is Depth
+        # TODO: add only if mode is Depth
         hand.depth_threshold = self.depth_threshold
         self.hands.append(hand)
 
     def update_expected_hands(self, frame):
+        """
+        Update with a frame the list of expected hands.
+        :param frame: Frame to update the hands.
+        :return:
+        """
         if len(self.hands) > 0:
             for existing_hand in self.hands:
                 existing_hand.detect_and_track(frame)
@@ -101,12 +112,13 @@ class HandDetector:
                 #     print "removing hand"
                 #     self.hands.remove(existing_hand)
 
+    # TODO: add a new method to know if we are tracking with overlaping rois.
 
 
     def add_hand2(self, frame, roi = None):
         """
-
-
+        # TODO: Deprecated. Check if it can be removed.
+        Add a new hand to the system to be tracked.
         :param frame:
         :param roi:
         :return:
@@ -134,72 +146,6 @@ class HandDetector:
         #                              (template_x + template_w, template_y + template_h), [0, 0, 0])
         return
 
-    def add_hand(self, frame):
-        # Load the hand template
-        template_path = os.path.join(os.path.dirname(__file__), './resources/right_hand_mask.png')
-        hand_template = cv2.imread(template_path)
-        hand_template_contour, hand_template_roi, hand_template_roi_image = self.calculate_max_contour(hand_template)
-
-        template_x, template_y, template_w, template_h = hand_template_roi
-        # Get the contour and mask of the frame
-        frame_contours, frame_mask = self.create_contours_and_mask(frame, hand_template_roi)
-        masked_frame = frame.copy()
-
-        if len(frame_contours) > 0 and len(frame_mask) > 0:
-            # Get the maximum area contour
-            min_area = 100
-            hand_contour = None
-            for i in range(len(frame_contours)):
-                cnt = frame_contours[i]
-                area = cv2.contourArea(cnt)
-                if area > min_area:
-                    min_area = area
-                    hand_contour = frame_contours[i]
-
-            if hand_contour is not None:
-                # cv2.drawContours(frame, [hand_contour], -1, (0, 255, 255), 2)
-                detected_hand_bounding_rect = cv2.boundingRect(hand_contour)
-                detected_hand_x, detected_hand_y, detected_hand_w, detected_hand_h = detected_hand_bounding_rect
-                frame_mask_roi_image = frame_mask[template_y:template_y + template_h,
-                                       template_x:template_x + template_w]
-                frame_mask_roi_image_contour, _, _ = self.calculate_max_contour(frame_mask_roi_image, to_binary=False)
-
-                if frame_mask_roi_image is not None:
-                    # realtime_handmask = np.zeros((frame_mask_roi_image.shape))
-                    # cv2.fillPoly(realtime_handmask, pts=[hand_contour], color=(255, 255, 255))
-                    # cv2.imshow("realtime hand mask", realtime_handmask)
-                    diff = cv2.absdiff(hand_template_roi_image.astype(np.uint8), frame_mask_roi_image.astype(np.uint8))
-                    if self.debug:
-                        cv2.imshow("DEBUG: HandDetection_lib: diff", diff)
-                    result = cv2.matchShapes(frame_mask_roi_image_contour, hand_template_contour, 1, 0)
-                    print result
-                    if frame_mask_roi_image_contour is not None:
-                        aux_detected_cnt = frame_mask_roi_image_contour
-                        # Put in the original X and Y
-                        aux_detected_cnt[:, :, 0] += hand_template_roi[0]
-                        aux_detected_cnt[:, :, 1] += hand_template_roi[1]
-                        cv2.drawContours(masked_frame, [aux_detected_cnt], -1, (0, 255, 0), 2)
-                    if result < 0.05:
-                        print "Match!!! " + str(result)
-                        hand = Hand()
-                        hand._id = len(self.hands)
-                        hand._contour = hand_contour
-                        hand._detection_roi = detected_hand_bounding_rect
-                        self.hands.append(hand)
-                        cv2.putText(masked_frame, "HAND FOUND",
-                                    (template_x, template_y + template_h + 10),
-                                    self.font, 1, [255, 255, 255], 2)
-            if len(self.hands) < 1:
-                cv2.putText(masked_frame, "CENTER YOUR HAND",
-                            (template_x, template_y + template_h + 10),
-                            self.font, 1, [255, 255, 255], 2)
-        else:
-            cv2.putText(masked_frame, "PLEASE PUT YOUR HAND HERE", (template_x - 100, template_y + template_h + 10),
-                        self.font, 1, [255, 255, 255], 2)
-
-        masked_frame = cv2.addWeighted(masked_frame, 0.7, hand_template, 0.3, 0)
-        # cv2.imshow('masked_frame', masked_frame)
-        return masked_frame
 
     def calculate_bounding_rects_intersection(self, bounding_rect_1, bounding_rect_2):
         b1_x_left = bounding_rect_1[0]
@@ -244,52 +190,12 @@ class HandDetector:
         #TODO: Set to all available hands
 
 
-    def capture_and_compute(self):
-        while self.capture.isOpened():
-
-            # Measure execution time
-            # start_time = time.time()
-
-            # Capture frames from the camera
-            ret, frame = self.capture.read()
-
-            if ret is True:
-                self.update_detection(frame)
-
-                self.update_tracking(frame)
-
-                for index, hand in enumerate(self.hands):
-                    if hand.detected is False:
-                        hand.detection_fail += 1
-                        if hand.tracked:
-                            hand.bounding_rect = hand.tracking_window
-                        else:
-                            print "_____________No updated information"
-                    hand.update_truth_value_by_frame2()
-                    if hand.confidence <= 0:
-                        print "removing hand"
-                        self.hands.remove(hand)
-
-                overlayed_frame = frame.copy()
-                for hand in self.hands:
-                    overlayed_frame = self.draw_hand_overlay(frame, hand)
-                    pass
-
-                ##### Show final image ########
-                if self.debug:
-                    cv2.imshow('DEBUG: HandDetection_lib: Detection', overlayed_frame)
-                ###############################
-                # Print execution time
-                # print time.time()-start_time
-            else:
-                print "No video detected"
-
-            # close the output video by pressing 'ESC'
-            k = cv2.waitKey(50) & 0xFF
-            if k == 27:
-                break
-
     def capture_and_compute2(self):
+        """
+         Method to run the lib independently capturing frames from camera an computing.
+        # TODO: Need to be refactored. Most of the current functionality have been moved to the Hand class...
+        :return:
+        """
         if self.capture.isOpened():
             while self.capture.isOpened():
 
@@ -305,7 +211,7 @@ class HandDetector:
 
                     self.update_detection_and_tracking(frame)
 
-                    overlayed_frame = self.compute_overlayed_frame(frame)
+                    overlayed_frame = self.draw_hands_on_frame(frame)
 
                     ##### Show final image ########
                     if self.debug:
@@ -326,195 +232,26 @@ class HandDetector:
         else:
             print("Capture device is not opened.")
 
-    def compute_overlayed_frame(self, frame):
+
+    def draw_hands_on_frame(self, frame):
+        """
+        Draw the detected / tracked hands on the frame
+        :param frame: frame to be overlayed with hands
+        :return: overlayed frame
+        """
         overlayed_frame = frame.copy()
         for hand in self.hands:
             overlayed_frame = self.draw_hand_overlay(frame, hand)
         return overlayed_frame
 
 
-
-    def update_hand_with_contour(self, frame, hand_contour, hand_to_update):
-        hand = copy.deepcopy(hand_to_update)
-        hand.contour = hand_contour
-        hand.bounding_rect = cv2.boundingRect(hand_contour)
-        hull2 = cv2.convexHull(hand_contour, returnPoints=False)
-        defects = cv2.convexityDefects(hand_contour, hull2)
-
-        # Get defect points and draw them in the original image
-        if defects is not None:
-            fingertips_coords, \
-            fingertips_indexes, \
-            intertips_coords, \
-            intertips_indexes = self.get_hand_fingertips(hand_contour, defects)
-
-            is_hand = self.is_hand(fingertips_coords, intertips_coords, strict=False)
-            if is_hand:
-                hand.fingertips = fingertips_coords
-                hand.intertips = intertips_coords
-
-                if len(fingertips_coords) == 5:
-                    fingers_contour = np.take(hand_contour,
-                                              fingertips_indexes + intertips_indexes,
-                                              axis=0,
-                                              mode="wrap")
-                    hand.bounding_rect, hand_circle, hand.contour = self.get_hand_bounding_rect_from_fingers(
-                        hand_contour,
-                        fingers_contour)
-
-            # Find moments of the largest contour
-            moments = cv2.moments(hand_contour)
-            center_of_mass = None
-            finger_distances = []
-            average_defect_distance = None
-            # Central mass of first order moments
-            if moments['m00'] != 0:
-                cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
-                cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
-                center_of_mass = (cx, cy)
-                hand.center_of_mass = center_of_mass
-                hand.position_history.append(center_of_mass)
-
-            if center_of_mass is not None and len(intertips_coords) > 0:
-                # Distance from each finger defect(finger webbing) to the center mass
-                distance_between_defects_to_center = []
-                for far in intertips_coords:
-                    x = np.array(far)
-                    center_mass_array = np.array(center_of_mass)
-                    distance = np.sqrt(
-                        np.power(x[0] - center_mass_array[0],
-                                 2) + np.power(x[1] - center_mass_array[1], 2)
-                    )
-                    distance_between_defects_to_center.append(distance)
-
-                # Get an average of three shortest distances from finger webbing to center mass
-                sorted_defects_distances = sorted(distance_between_defects_to_center)
-                average_defect_distance = np.mean(sorted_defects_distances[0:2])
-                hand.average_defect_distance = average_defect_distance
-                # # Get fingertip points from contour hull
-                # # If points are in proximity of 80 pixels, consider as a single point in the group
-                # finger = []
-                # for i in range(0, len(hull) - 1):
-                #     if (np.absolute(hull[i][0][0] - hull[i + 1][0][0]) > 10) or (
-                #             np.absolute(hull[i][0][1] - hull[i + 1][0][1]) > 10):
-                #         if hull[i][0][1] < 500:
-                #             finger.append(hull[i][0])
-                #
-                #
-                # # The fingertip points are 5 hull points with largest y coordinates
-                # finger = sorted(finger, key=lambda x: x[1])
-                # fingers = finger[0:5]
-            if center_of_mass is not None and len(fingertips_coords) > 0:
-                # Calculate distance of each finger tip to the center mass
-                finger_distances = []
-                for i in range(0, len(fingertips_coords)):
-                    distance = np.sqrt(
-                        np.power(fingertips_coords[i][0] - center_of_mass[0], 2) + np.power(
-                            fingertips_coords[i][1] - center_of_mass[0], 2))
-                    finger_distances.append(distance)
-                hand.finger_distances = finger_distances
-        return hand
-
-    #
-    # def contour_to_hand(self, frame, hand_contour, hand_to_update=None):
-    #     initial = (hand_to_update == None)
-    #     if not initial:
-    #         hand = copy.deepcopy(hand_to_update)
-    #         updated_hand.contour = hand_contour
-    #         hand_bounding_rect = cv2.boundingRect(hand_contour)
-    #     else:
-    #         updated_hand = Hand()
-    #
-    #     hull2 = cv2.convexHull(hand_contour, returnPoints=False)
-    #     defects = cv2.convexityDefects(hand_contour, hull2)
-    #
-    #     # Get defect points and draw them in the original image
-    #     if defects is not None:
-    #         fingertips_coords, \
-    #         fingertips_indexes, \
-    #         intertips_coords, \
-    #         intertips_indexes = self.get_hand_fingertips(hand_contour, defects)
-    #
-    #         is_hand = self.is_hand(fingertips_coords, intertips_coords, strict=initial)
-    #         if is_hand:
-    #             updated_hand.fingertips = fingertips_coords
-    #             updated_hand.intertips = intertips_coords
-    #
-    #             if len(fingertips_coords) == 5:
-    #                 fingers_contour = np.take(hand_contour,
-    #                                           fingertips_indexes + intertips_indexes,
-    #                                           axis=0,
-    #                                           mode="wrap")
-    #                 hand_bounding_rect, hand_circle, hand_contour = self.get_hand_bounding_rect_from_fingers(hand_contour,
-    #                                                                                                          fingers_contour)
-    #         # elif hand_to_update is not None and hand_to_update.center_of_mass is not None and len(hand_to_update.finger_distances)>0:
-    #         #     hand_bounding_rect, hand_circle, hand_contour = \
-    #         #         self.get_hand_bounding_rect_from_center_of_mass(
-    #         #             hand_contour,
-    #         #             hand_to_update.center_of_mass,
-    #         #             max(hand_to_update.finger_distances))
-    #
-    #         if not initial or is_hand:
-    #             updated_hand.contour = hand_contour
-    #             updated_hand.bounding_rect = hand_bounding_rect
-    #             # Find moments of the largest contour
-    #             moments = cv2.moments(hand_contour)
-    #             center_of_mass = None
-    #             finger_distances = []
-    #             average_defect_distance = None
-    #             # Central mass of first order moments
-    #             if moments['m00'] != 0:
-    #                 cx = int(moments['m10'] / moments['m00'])  # cx = M10/M00
-    #                 cy = int(moments['m01'] / moments['m00'])  # cy = M01/M00
-    #                 center_of_mass = (cx, cy)
-    #                 updated_hand.center_of_mass = center_of_mass
-    #                 updated_hand.position_history.append(center_of_mass)
-    #
-    #             if center_of_mass is not None and len(intertips_coords) > 0:
-    #                 # Distance from each finger defect(finger webbing) to the center mass
-    #                 distance_between_defects_to_center = []
-    #                 for far in intertips_coords:
-    #                     x = np.array(far)
-    #                     center_mass_array = np.array(center_of_mass)
-    #                     distance = np.sqrt(
-    #                         np.power(x[0] - center_mass_array[0],
-    #                                  2) + np.power(x[1] - center_mass_array[1], 2)
-    #                     )
-    #                     distance_between_defects_to_center.append(distance)
-    #
-    #                 # Get an average of three shortest distances from finger webbing to center mass
-    #                 sorted_defects_distances = sorted(distance_between_defects_to_center)
-    #                 average_defect_distance = np.mean(sorted_defects_distances[0:2])
-    #                 updated_hand.average_defect_distance = average_defect_distance
-    #                 # # Get fingertip points from contour hull
-    #                 # # If points are in proximity of 80 pixels, consider as a single point in the group
-    #                 # finger = []
-    #                 # for i in range(0, len(hull) - 1):
-    #                 #     if (np.absolute(hull[i][0][0] - hull[i + 1][0][0]) > 10) or (
-    #                 #             np.absolute(hull[i][0][1] - hull[i + 1][0][1]) > 10):
-    #                 #         if hull[i][0][1] < 500:
-    #                 #             finger.append(hull[i][0])
-    #                 #
-    #                 #
-    #                 # # The fingertip points are 5 hull points with largest y coordinates
-    #                 # finger = sorted(finger, key=lambda x: x[1])
-    #                 # fingers = finger[0:5]
-    #             if center_of_mass is not None and len(fingertips_coords) > 0:
-    #                 # Calculate distance of each finger tip to the center mass
-    #                 finger_distances = []
-    #                 for i in range(0, len(fingertips_coords)):
-    #                     distance = np.sqrt(
-    #                         np.power(fingertips_coords[i][0] - center_of_mass[0], 2) + np.power(
-    #                             fingertips_coords[i][1] - center_of_mass[0], 2))
-    #                     finger_distances.append(distance)
-    #                 updated_hand.finger_distances = finger_distances
-    #         else:
-    #              return None
-    #     elif initial:
-    #         return None
-    #     return updated_hand
-
     def draw_hand_overlay(self, frame, hand):
+        """
+        TODO: Move to hand class. It could have an static
+        :param frame: frame to be overlayed with hand information
+        :param hand: hand to be drawn on the frame.
+        :return:
+        """
         if hand.detected:
             for finger_number, fingertip in enumerate(hand.fingertips):
                 cv2.circle(frame, tuple(fingertip), 10, [255, 100, 255], 3)
@@ -555,6 +292,14 @@ class HandDetector:
         return frame
 
     def draw_contour_features(self, to_show, hand_contour):
+        """
+        Draw features of the hand on the frame
+        TODO: Move to to Hand class.
+        TODO: Refactor to get the info from the Hand class and not calculate it again
+        :param to_show: frame to be overlayed with hand information
+        :param hand_contour: hand contour to get the features from it
+        :return: TODO: return frame with overlayed information
+        """
         perimeter = cv2.arcLength(hand_contour, True)
         # print perimeter
         hull = cv2.convexHull(hand_contour, returnPoints=False)
@@ -594,12 +339,19 @@ class HandDetector:
         cv2.imshow("Hand with contour", to_show)
 
     def exit(self):
+        """
+        Method for the self execution of the lib to end the opencv windows.
+        :return:
+        """
         self.capture.release()
         cv2.destroyAllWindows()
 
-
-
     def get_MOG2_mask(self, image):
+        """
+        TODO: Move to Hand class
+        :param image:
+        :return:
+        """
         # TODO: not working (it considers everything shadows or moves (too dark background)
         fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
         # fgbg= cv2.BackgroundSubtractorMOG2(0, 50)
@@ -614,7 +366,13 @@ class HandDetector:
         mask = fgbg.apply(blurred)
         return mask
 
+
     def get_movement_buffer_mask(self, image):
+        """
+        TODO: Move to hand Class
+        :param image:
+        :return:
+        """
         mask = None
         self.last_frames.append(image)
         mean_image = np.zeros(image.shape, dtype=np.float32)
@@ -635,6 +393,11 @@ class HandDetector:
         return mask
 
     def get_simple_diff_mask(self, image):
+        """
+        TODO: Move to Hand class
+        :param image:
+        :return:
+        """
         mask = None
         if len(self.last_frames) < self.discarded_frames:
             self.last_frames.append(image)
@@ -656,6 +419,11 @@ class HandDetector:
         return mask
 
     def get_simple_diff_mask2(self, image):
+        """
+        TODO: Move to Hand class
+        :param image:
+        :return:
+        """
         mask = None
         # TODO: ENV_DEPENDENCE: it could depend on the lighting and environment
         blur_radius = 5
@@ -700,38 +468,16 @@ class HandDetector:
             self.last_frames.append(image)
         return mask
 
-    #
-    #     # scale_up = 20
-    #     # current_hand_roi_mask[max(y - scale_up, 0):min(y + h + scale_up, frame.shape[0]),
-    #     # max(x - scale_up, 0):min(x + w + scale_up, frame.shape[1])] = 255
-
-    # def calculate_hand_interst_points(self, frame, cnts):
-    #     #  convexity defect
-    #
-    #     drawing = copy.deepcopy(frame)
-    #     hull = cv2.convexHull(cnts, returnPoints=False)
-    #     if len(hull) > 3:
-    #         defects = cv2.convexityDefects(cnts, hull)
-    #         if type(defects) != type(None):  # avoid crashing.   (BUG not found)
-    #
-    #             cnt = 0
-    #             for i in range(defects.shape[0]):  # calculate the angle
-    #                 s, e, f, d = defects[i][0]
-    #                 start = tuple(cnts[s][0])
-    #                 end = tuple(cnts[e][0])
-    #                 far = tuple(cnts[f][0])
-    #                 a = math.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
-    #                 b = math.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
-    #                 c = math.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
-    #                 angle = math.acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))  # cosine theorem
-    #                 if angle <= math.pi / 2:  # angle less than 90 degree, treat as fingers
-    #                     cnt += 1
-    #                     cv2.circle(drawing, far, 8, [211, 84, 0], -1)
-    #                     interdigs.append(far)
-    #                 cv2.imshow("detect_fingers", drawing)
-    #     return interdigs
 
     def detect_hands_in_frame(self, frame, roi=None):
+        """
+        Detect multiple hands on a frame and return an array with these.
+
+        TODO: move to hand class as an staticmethod
+        :param frame: frame to be processed to find the hands on it.
+        :param roi: region to look for the hands.
+        :return: list of hands found as Class
+        """
         new_hands = []
 
         contours, _ = self.create_contours_and_mask(frame, roi)
