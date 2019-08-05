@@ -296,6 +296,7 @@ class HandDetector:
         Draw features of the hand on the frame
         TODO: Move to to Hand class.
         TODO: Refactor to get the info from the Hand class and not calculate it again
+        
         :param to_show: frame to be overlayed with hand information
         :param hand_contour: hand contour to get the features from it
         :return: TODO: return frame with overlayed information
@@ -369,9 +370,10 @@ class HandDetector:
 
     def get_movement_buffer_mask(self, image):
         """
+        Calculate a mask for the image based on the movement respect the previous frames.
         TODO: Move to hand Class
-        :param image:
-        :return:
+        :param image: image to get the mask from.
+        :return: mask for the frame mased on the movement of this image related with previous ones.
         """
         mask = None
         self.last_frames.append(image)
@@ -394,9 +396,10 @@ class HandDetector:
 
     def get_simple_diff_mask(self, image):
         """
+        Calculate a mask for the image based on the difference with previous ones.
         TODO: Move to Hand class
-        :param image:
-        :return:
+        :param image: image to get the mask
+        :return: mask based on the difference with previous frames
         """
         mask = None
         if len(self.last_frames) < self.discarded_frames:
@@ -508,11 +511,26 @@ class HandDetector:
 
 
     def reset_background(self):
-        # TODO test it better
+        """
+        Method usefull only for the get_simple_diff_mask2.
+        TODO: If it's going to be used probably would be moved to a buffer class with the related methods for the background.
+        TODO: test it better
+        :return: None
+        """
         self.last_frames = deque(maxlen=self.discarded_frames)
         self.first_frame = None
 
     def update_detection(self, frame):
+        """
+        Method to update the detection of the existing hands.
+        This method look for all new hands detected on the frame. Then it looks for the intersection with the existing ones.
+
+        TODO: Deprecated. Check if it would be usefull to adapt to the new way of detecting tracking hands.
+
+
+        :param frame: Image used to look for hands.
+        :return: None
+        """
         for hand in self.hands:
             hand.detected = False
         detected_hands = self.detect_hands_in_frame(frame)
@@ -538,10 +556,19 @@ class HandDetector:
                 detected_hand._detected = True
                 self.next_hand_id += 1
                 self.hands.append(detected_hand)
-                print "New hand"
+                print("New hand")
 
 
     def detect_fist(self, frame, roi):
+        """
+        Method to detect fist.
+        TODO: Deprecated. Move to Hand class and review if it's working.
+        TODO: There's too much code similar to detect hand. It' would probably be unified or common code extracted.
+
+        :param frame: Image to be processed looking for a fist.
+        :param roi: Roi of the image to be used to look for the fist.
+        :return: None
+        """
         contours, _ = self.create_contours_and_mask(frame, roi)
         hand_contour = None
         if len(contours) > 0:
@@ -612,78 +639,6 @@ class HandDetector:
         else:
             return None, None
 
-    def update_detection2(self, frame):
-        for existing_hand in self.hands:
-            existing_hand.detected = False
-            # new_bounding_rect = upscale_bounding_rec(existing_hand.bounding_rect,frame.shape, 100)
-            updated_hand = self.update_hand_attributes(frame, existing_hand)
-            if updated_hand is not None:
-                existing_hand.update_attributes_from_detected(updated_hand)
-
-    def update_hand_attributes(self, frame, hand, strict=True):
-        updated_hand = copy.deepcopy(hand)
-        # if hand.detected or (not hand.detected and not hand.tracked):
-        #     extended_bounding_rect = hand.bounding_rect
-        # else :
-        #     extended_bounding_rect = upscale_bounding_rect(hand.tracking_window, frame.shape, 20)
-        #     if hand.bounding_rect[2] > extended_bounding_rect[2] and hand.bounding_rect[3] > extended_bounding_rect[3]:
-        #         extended_bounding_rect = (extended_bounding_rect[0], extended_bounding_rect[1],hand.bounding_rect[2], hand.bounding_rect[3])
-        # if hand.detected or (not hand.detected and not hand.tracked):
-        contours, _ = self.create_contours_and_mask(frame, hand.bounding_rect)
-        # else:
-        #     # upscaled_tracking_window = upscale_bounding_rect(hand.bounding_rect, frame.shape, 100)
-        #     new_tracking_window = (hand.tracking_window[0],  hand.tracking_window[1], hand.bounding_rect[2], hand.bounding_rect[3])
-        #     contours, _ = self.create_contours_and_mask(frame, new_tracking_window)
-
-        if len(contours) > 0:
-            # Find Max contour area (Assume that hand is in the frame)
-            # TODO: ENV_DEPENDENCE: depends on the camera resolution, distance to the background, noisy areas sizes
-            max_area = 0
-            hand_contour = None
-            for contour_index in range(len(contours)):
-                cnt = contours[contour_index]
-                area = cv2.contourArea(cnt)
-                if area >= max_area:
-                    max_area = area
-                    # Largest area contour
-                    hand_contour = contours[contour_index]
-
-                    # Find convex hull
-                    # hull = cv2.convexHull(hand_contour)
-                    # for point in hull:
-                    #     cv2.circle(frame, tuple(point[0]), 8, [255, 100, 10], -1)
-
-                    # Find convex defects
-            if hand_contour is not None:
-                if self.debug:
-                    to_show = frame.copy()
-                    cv2.drawContours(to_show, contours, -1, 255)
-                    cv2.imshow("DEBUG: HandDetection_lib: update_hand_charasteristics (New Contour)", to_show)
-                updated_hand = self.update_hand_with_contour(frame, hand_contour, updated_hand)
-            else:
-                return None
-        else:
-            return None
-        return updated_hand
-
-    def update_tracking(self, frame):
-        if len(self.hands) > 0:
-            for index, hand in enumerate(self.hands):
-                hand.tracked = False
-                hands_mask = self.create_hands_mask(frame)
-                ret, tracking_window = self.follow(frame, hands_mask, hand.bounding_rect)
-                if ret and tracking_window is not None:
-                    updated_hand = self.update_hand_attributes(frame, hand)
-                    if updated_hand is not None:
-                        updated_hand.detected = hand.detected
-                        updated_hand.tracking_window = tracking_window
-                        updated_hand.detection_fails = hand.detection_fail
-                        updated_hand.tracked = True
-                        self.hands[index] = updated_hand
-                    else:
-                        hand.tracked = False
-                else:
-                    hand.tracked = False
 
 
 def main():
