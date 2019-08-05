@@ -296,7 +296,7 @@ class HandDetector:
         Draw features of the hand on the frame
         TODO: Move to to Hand class.
         TODO: Refactor to get the info from the Hand class and not calculate it again
-        
+
         :param to_show: frame to be overlayed with hand information
         :param hand_contour: hand contour to get the features from it
         :return: TODO: return frame with overlayed information
